@@ -6,26 +6,12 @@ HACS-Integration für [Lademonitor-Server](https://github.com/iDomi94/Lademonito
 (selbstgehostete Ladevorgang-Tracking-App für ein E-Auto). Holt Statistiken
 (Kosten, Verbrauch, gefahrene km, AC/DC-Anteil) als Sensoren in Home
 Assistant und stellt Services bereit, um automatisch erkannte Ladevorgänge
-an den Server zu übertragen – als Ersatz für die bisherige Kombination aus
-selbst angelegten `input_text`/`input_number`-Helfern und einem
-`rest_command` mit von Hand eingetragenem Bearer-Token.
+an den Server zu übertragen.
 
-## Warum diese Integration
-
-Der Server-seitige Push-Endpunkt (`POST /api/sessions/auto`) brauchte bisher
-ein Bearer-Token, das man einmalig per `curl`/`POST /api/auth/login` holen
-und von Hand in eine `rest_command`-Definition eintragen musste. Diese
-Integration übernimmt das: Login einmalig im Einrichtungsdialog, Token wird
-automatisch verwaltet und bei Bedarf (z.B. nach einem Logout durch den
-Admin) automatisch erneuert – kein manuelles Token-Handling mehr.
-
-Zusätzlich musste man SoC-Start/Startzeit/Lade-Art bisher selbst über
-`input_text`/`input_number`-Helfer zwischenspeichern (siehe unten). Die
-Integration merkt sich das jetzt intern und persistent – kein Package mit
-Helfer-Definitionen mehr nötig. Bewusst **keine** automatisch angelegten
-`input_text`/`input_number`-Entities: eine Integration, die in die
-Storage-API einer anderen Integration schreibt, wäre kein offiziell
-unterstütztes Muster und würde bei HA-Updates leicht brechen.
+Login/Token-Handling läuft komplett über die Integration (Einrichtungsdialog
+fragt Server-URL + Zugangsdaten einmalig ab, Token wird intern verwaltet und
+bei Bedarf automatisch erneuert) – für Automationen ist kein eigenes
+Auth-Handling nötig.
 
 ## Installation (HACS Custom Repository)
 
@@ -46,27 +32,22 @@ Gesamt-kWh, Ø Preis/kWh, Ø Verbrauch kWh/100km, Kosten/100km, gefahrene km
 gesamt, AC-/DC-Anteil, Anzahl Ladevorgänge. Abfrageintervall über die
 Integrations-Optionen einstellbar (Standard 15 Minuten).
 
-## Ladevorgänge automatisch übertragen (ohne Helfer, ohne rest_command)
+## Ladevorgänge automatisch übertragen
 
-Bisher brauchte eine automatische Übertragung typischerweise drei Zutaten in
-einer eigenen YAML-Package-Datei: `input_text`/`input_number`-Helfer (um
-SoC-Start/Startzeit/Lade-Art zwischen Einstecken und Ladeende zu merken),
-einen `rest_command` mit von Hand eingetragenem Bearer-Token, und die
-eigentliche Automation. Die Integration übernimmt jetzt die ersten beiden
-Punkte: Sie merkt sich Start-Werte **selbst persistent** (übersteht auch
-einen HA-Neustart mitten im Ladevorgang) und erledigt die Auth automatisch.
-Übrig bleibt nur noch die Automation selbst – die legst du wie gewohnt in
-deinen eigenen Automationen an (UI oder `automations.yaml`), kein Package
-mehr nötig.
-
-Dafür gibt es zwei Services:
+Für eine Automation, die Ladebeginn und Ladeende an zwei unterschiedlichen
+Zeitpunkten erkennt (z.B. über einen Lade-Status-Sensor), gibt es zwei
+Services, die zusammenspielen – SoC-Start/Startzeit/Lade-Art müssen dafür
+**nirgends selbst zwischengespeichert werden** (kein `input_text`/
+`input_number` nötig), die Integration merkt sich das intern und persistent
+(übersteht auch einen HA-Neustart mitten im Ladevorgang):
 
 - **`lademonitor.begin_charging_session`** – beim Einstecken/Ladebeginn
   aufrufen, merkt `soc_start`/`charging_type` intern (Startzeit wird
-  automatisch auf „jetzt" gesetzt)
+  automatisch auf „jetzt" gesetzt). Überträgt noch nichts an den Server.
 - **`lademonitor.end_charging_session`** – bei Ladeende aufrufen, holt die
   gemerkten Werte wieder heraus, kombiniert sie mit den hier übergebenen
-  Endwerten und überträgt den kompletten Ladevorgang an den Server
+  Endwerten und **überträgt den kompletten Ladevorgang an den Server**
+  (entspricht `POST /api/sessions/auto`).
 
 Vollständiges Beispiel für MySkoda/Škoda Enyaq (dieselbe Logik lässt sich auf
 jedes Fahrzeug übertragen, das einen Lade-Status-Sensor mit einem
@@ -74,8 +55,7 @@ jedes Fahrzeug übertragen, das einen Lade-Status-Sensor mit einem
 `sensor.skoda_enyaq_charging_state` kennt fünf Werte: `connect_cable`
 (Ruhezustand/Standard) sowie `ready_for_charging`, `conserving`, `charging`,
 `charging_interrupted` (alle vier = „verbunden/aktiv"). Die Session-Grenze
-ist der Übergang zwischen `connect_cable` und einem der vier aktiven Werte –
-**nicht** "Wert außerhalb einer Liste" (ein früherer, fehlerhafter Ansatz):
+ist der Übergang zwischen `connect_cable` und einem der vier aktiven Werte:
 
 ```yaml
 automation:
@@ -86,7 +66,7 @@ automation:
         entity_id: sensor.skoda_enyaq_charging_state
     actions:
       - choose:
-          # connect_cable -> aktiver Zustand: Ladung beginnt
+          # connect_cable -> aktiver Zustand: Ladung beginnt, Startwerte merken
           - conditions:
               - condition: template
                 value_template: >-
@@ -124,22 +104,28 @@ Fahrzeug auf, ohne dass vorher `begin_charging_session` lief (z.B. HA neu
 gestartet, während das Auto schon lud), schlägt der Service mit einer
 klaren Fehlermeldung fehl statt einen unvollständigen Datensatz zu senden.
 
-**Migration von einer bestehenden `rest_command`-Automation mit eigenen
-Helfern**: `packages/lademonitor.yaml` (die `input_text`-, `input_number`-
-und `rest_command`-Definitionen) kann komplett gelöscht werden. Die
-Automation selbst wandert in deine normalen Automationen und wird wie oben
-umgeschrieben – Trigger und die `choose`-Struktur bleiben identisch, nur die
-beiden `action`-Blöcke ändern sich (`input_number.set_value`/
-`input_text.set_value` → `lademonitor.begin_charging_session`,
-`rest_command.lademonitor_push_session` → `lademonitor.end_charging_session`,
-kein `Authorization`-Header mehr nötig).
+### Alternative: alle Werte in einem Aufruf
 
-Für Fälle, in denen bereits alle Werte in einem Rutsch vorliegen (z.B.
-Import aus einer anderen Quelle statt eines Ladebeginn/-ende-Ereignisses),
-gibt es weiterhin **`lademonitor.push_charging_session`** – nimmt alle Felder
-in einem Aufruf entgegen (`vehicle_external_id`, `external_session_id`,
-`start_time`, `end_time`, `charging_type`, `soc_start`, `soc_end`,
-`odometer_km`, `latitude`, `longitude`, `energy_kwh`).
+Liegen Start- und Endwerte bereits gemeinsam vor (z.B. eine Quelle, die den
+kompletten Ladevorgang erst im Nachhinein liefert, statt Beginn und Ende als
+getrennte Ereignisse), überträgt **`lademonitor.push_charging_session`** den
+Ladevorgang in einem einzigen Aufruf – kein vorheriges `begin_charging_session`
+nötig:
+
+```yaml
+action: lademonitor.push_charging_session
+data:
+  vehicle_external_id: enyaq
+  external_session_id: "{{ session.id }}"
+  start_time: "{{ session.start }}"
+  end_time: "{{ session.end }}"
+  charging_type: "{{ session.charging_type }}"
+  soc_start: "{{ session.soc_start }}"
+  soc_end: "{{ session.soc_end }}"
+  odometer_km: "{{ session.odometer_km }}"
+  latitude: "{{ session.latitude }}"
+  longitude: "{{ session.longitude }}"
+```
 
 ## Bekannte Einschränkung
 

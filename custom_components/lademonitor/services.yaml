@@ -81,12 +81,12 @@ push_charging_session:
   name: Ladevorgang übertragen (alle Felder in einem Call)
   description: >-
     Überträgt einen kompletten Ladevorgang in einem Aufruf (entspricht POST
-    /api/sessions/auto). Für die meisten Automationen sind begin_charging_session
-    + end_charging_session einfacher, da man Start-/Endwerte nicht selbst
+    /api/sessions/auto). Für Automationen, die Ladebeginn und Ladeende als
+    getrennte Ereignisse erkennen, sind begin_charging_session +
+    end_charging_session einfacher, da man Start-/Endwerte nicht selbst
     zusammenführen muss - dieser Service ist gedacht für Fälle, in denen
     bereits alle Werte auf einmal vorliegen (z.B. Import aus einer anderen
-    Quelle). Kein rest_command/Bearer-Token mehr nötig - Auth läuft
-    automatisch über diese Integration.
+    Quelle).
   fields:
     vehicle_external_id:
       name: Fahrzeug-ID
