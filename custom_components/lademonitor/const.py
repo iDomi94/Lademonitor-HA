@@ -13,3 +13,5 @@ DEFAULT_SCAN_INTERVAL = timedelta(minutes=15)
 CONF_SCAN_INTERVAL_MINUTES = "scan_interval_minutes"
 
 SERVICE_PUSH_CHARGING_SESSION = "push_charging_session"
+SERVICE_BEGIN_CHARGING_SESSION = "begin_charging_session"
+SERVICE_END_CHARGING_SESSION = "end_charging_session"

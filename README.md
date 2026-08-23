@@ -5,9 +5,10 @@
 HACS-Integration für [Lademonitor-Server](https://github.com/iDomi94/Lademonitor-Server)
 (selbstgehostete Ladevorgang-Tracking-App für ein E-Auto). Holt Statistiken
 (Kosten, Verbrauch, gefahrene km, AC/DC-Anteil) als Sensoren in Home
-Assistant und stellt einen Service bereit, um automatisch erkannte
-Ladevorgänge an den Server zu übertragen – als Ersatz für den bisherigen,
-manuell konfigurierten `rest_command`-Aufruf.
+Assistant und stellt Services bereit, um automatisch erkannte Ladevorgänge
+an den Server zu übertragen – als Ersatz für die bisherige Kombination aus
+selbst angelegten `input_text`/`input_number`-Helfern und einem
+`rest_command` mit von Hand eingetragenem Bearer-Token.
 
 ## Warum diese Integration
 
@@ -17,6 +18,14 @@ und von Hand in eine `rest_command`-Definition eintragen musste. Diese
 Integration übernimmt das: Login einmalig im Einrichtungsdialog, Token wird
 automatisch verwaltet und bei Bedarf (z.B. nach einem Logout durch den
 Admin) automatisch erneuert – kein manuelles Token-Handling mehr.
+
+Zusätzlich musste man SoC-Start/Startzeit/Lade-Art bisher selbst über
+`input_text`/`input_number`-Helfer zwischenspeichern (siehe unten). Die
+Integration merkt sich das jetzt intern und persistent – kein Package mit
+Helfer-Definitionen mehr nötig. Bewusst **keine** automatisch angelegten
+`input_text`/`input_number`-Entities: eine Integration, die in die
+Storage-API einer anderen Integration schreibt, wäre kein offiziell
+unterstütztes Muster und würde bei HA-Updates leicht brechen.
 
 ## Installation (HACS Custom Repository)
 
@@ -37,7 +46,27 @@ Gesamt-kWh, Ø Preis/kWh, Ø Verbrauch kWh/100km, Kosten/100km, gefahrene km
 gesamt, AC-/DC-Anteil, Anzahl Ladevorgänge. Abfrageintervall über die
 Integrations-Optionen einstellbar (Standard 15 Minuten).
 
-## Beispiel-Automation: Ladevorgänge automatisch übertragen
+## Ladevorgänge automatisch übertragen (ohne Helfer, ohne rest_command)
+
+Bisher brauchte eine automatische Übertragung typischerweise drei Zutaten in
+einer eigenen YAML-Package-Datei: `input_text`/`input_number`-Helfer (um
+SoC-Start/Startzeit/Lade-Art zwischen Einstecken und Ladeende zu merken),
+einen `rest_command` mit von Hand eingetragenem Bearer-Token, und die
+eigentliche Automation. Die Integration übernimmt jetzt die ersten beiden
+Punkte: Sie merkt sich Start-Werte **selbst persistent** (übersteht auch
+einen HA-Neustart mitten im Ladevorgang) und erledigt die Auth automatisch.
+Übrig bleibt nur noch die Automation selbst – die legst du wie gewohnt in
+deinen eigenen Automationen an (UI oder `automations.yaml`), kein Package
+mehr nötig.
+
+Dafür gibt es zwei Services:
+
+- **`lademonitor.begin_charging_session`** – beim Einstecken/Ladebeginn
+  aufrufen, merkt `soc_start`/`charging_type` intern (Startzeit wird
+  automatisch auf „jetzt" gesetzt)
+- **`lademonitor.end_charging_session`** – bei Ladeende aufrufen, holt die
+  gemerkten Werte wieder heraus, kombiniert sie mit den hier übergebenen
+  Endwerten und überträgt den kompletten Ladevorgang an den Server
 
 Vollständiges Beispiel für MySkoda/Škoda Enyaq (dieselbe Logik lässt sich auf
 jedes Fahrzeug übertragen, das einen Lade-Status-Sensor mit einem
@@ -46,106 +75,71 @@ jedes Fahrzeug übertragen, das einen Lade-Status-Sensor mit einem
 (Ruhezustand/Standard) sowie `ready_for_charging`, `conserving`, `charging`,
 `charging_interrupted` (alle vier = „verbunden/aktiv"). Die Session-Grenze
 ist der Übergang zwischen `connect_cable` und einem der vier aktiven Werte –
-**nicht** "Wert außerhalb einer Liste" (ein früherer, fehlerhafter Ansatz).
-
-SoC-Start, Startzeit und Lade-Art müssen beim **Einstecken** zwischengespeichert
-werden, weil der Charge-Type-Sensor beim Ladeende oft schon auf `unknown`
-zurückfällt, bevor die Automation feuert (Timing-Problem, nicht vermeidbar).
-
-Als HA-Package ablegen (z.B. `packages/lademonitor.yaml`, damit
-`configuration.yaml` sauber bleibt):
+**nicht** "Wert außerhalb einer Liste" (ein früherer, fehlerhafter Ansatz):
 
 ```yaml
-input_text:
-  enyaq_charge_start:
-    name: Lademonitor - Ladebeginn (intern)
-  enyaq_charge_type:
-    name: Lademonitor - Lade-Art (intern)
-
-input_number:
-  enyaq_soc_start:
-    name: Lademonitor - SoC bei Ladebeginn (intern)
-    min: 0
-    max: 100
-
 automation:
-  - id: lademonitor_ladebeginn_merken
-    alias: "Lademonitor: Ladebeginn merken"
-    trigger:
-      - platform: state
+  - id: enyaq_lademonitor_push
+    alias: Enyaq Ladevorgang → Lademonitor
+    triggers:
+      - trigger: state
         entity_id: sensor.skoda_enyaq_charging_state
-        from: "connect_cable"
-        to:
-          - "ready_for_charging"
-          - "conserving"
-          - "charging"
-          - "charging_interrupted"
-    action:
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.enyaq_soc_start
-        data:
-          value: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
-      - service: input_text.set_value
-        target:
-          entity_id: input_text.enyaq_charge_start
-        data:
-          value: "{{ now().isoformat() }}"
-      - service: input_text.set_value
-        target:
-          entity_id: input_text.enyaq_charge_type
-        data:
-          # Sensor liefert klein ('ac'/'dc') - Server normalisiert das
-          # selbst, hier keine Umwandlung nötig.
-          value: "{{ states('sensor.skoda_enyaq_charge_type') }}"
-
-  - id: lademonitor_ladeende_uebertragen
-    alias: "Lademonitor: Ladeende an Server übertragen"
-    trigger:
-      - platform: state
-        entity_id: sensor.skoda_enyaq_charging_state
-        to: "connect_cable"
-        from:
-          - "ready_for_charging"
-          - "conserving"
-          - "charging"
-          - "charging_interrupted"
-    condition:
-      # Ohne gemerkte Startzeit (z.B. HA-Neustart mitten im Ladevorgang)
-      # lieber gar nichts übertragen, statt einen unsinnigen Push zu senden.
-      - condition: template
-        value_template: >-
-          {{ states('input_text.enyaq_charge_start') not in
-             ['unknown', 'unavailable', ''] }}
-    action:
-      - action: lademonitor.push_charging_session
-        data:
-          vehicle_external_id: enyaq
-          external_session_id: "{{ states('input_text.enyaq_charge_start') }}"
-          start_time: "{{ states('input_text.enyaq_charge_start') }}"
-          end_time: "{{ now().isoformat() }}"
-          charging_type: "{{ states('input_text.enyaq_charge_type') }}"
-          soc_start: "{{ states('input_number.enyaq_soc_start') | int }}"
-          soc_end: "{{ states('sensor.skoda_enyaq_battery_percentage') | int }}"
-          odometer_km: "{{ states('sensor.skoda_enyaq_mileage') | int }}"
-          latitude: >-
-            {{ state_attr('device_tracker.skoda_enyaq_position', 'latitude') }}
-          longitude: >-
-            {{ state_attr('device_tracker.skoda_enyaq_position', 'longitude') }}
+    actions:
+      - choose:
+          # connect_cable -> aktiver Zustand: Ladung beginnt
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ trigger.from_state.state == 'connect_cable'
+                     and trigger.to_state.state in
+                       ['ready_for_charging','conserving','charging','charging_interrupted'] }}
+            sequence:
+              - action: lademonitor.begin_charging_session
+                data:
+                  vehicle_external_id: enyaq
+                  soc_start: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
+                  # Sensor liefert klein ('ac'/'dc') - Server normalisiert das selbst.
+                  charging_type: "{{ states('sensor.skoda_enyaq_charge_type') }}"
+          # aktiver Zustand -> connect_cable: Ladung beendet, Push an Lademonitor
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ trigger.from_state.state in
+                       ['ready_for_charging','conserving','charging','charging_interrupted']
+                     and trigger.to_state.state == 'connect_cable' }}
+            sequence:
+              - action: lademonitor.end_charging_session
+                data:
+                  vehicle_external_id: enyaq
+                  soc_end: "{{ states('sensor.skoda_enyaq_battery_percentage') | int }}"
+                  odometer_km: "{{ states('sensor.skoda_enyaq_mileage') | int }}"
+                  latitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'latitude') }}"
+                  longitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'longitude') }}"
 ```
 
-`external_session_id` nutzt hier direkt die gemerkte Startzeit als
-Duplikatschutz (eindeutig pro Ladevorgang, kein Zeitzonen-Rundungsproblem wie
-bei einem separat neu berechneten Zeitstempel). `energy_kwh` wird bewusst
-nicht mitgeschickt – der Server schätzt es serverseitig zuverlässiger aus
-SoC-Delta × Akkukapazität (MySkoda liefert keine verlässliche kWh-Angabe).
+`energy_kwh` wird bewusst nicht mitgeschickt – der Server schätzt es
+serverseitig zuverlässiger aus SoC-Delta × Akkukapazität (MySkoda liefert
+keine verlässliche kWh-Angabe). Ruft man `end_charging_session` für ein
+Fahrzeug auf, ohne dass vorher `begin_charging_session` lief (z.B. HA neu
+gestartet, während das Auto schon lud), schlägt der Service mit einer
+klaren Fehlermeldung fehl statt einen unvollständigen Datensatz zu senden.
 
-**Migration von einer bestehenden `rest_command`-Automation**: Trigger,
-Condition und die `input_text`/`input_number`-Helfer bleiben identisch – nur
-der `action`-Block der zweiten Automation wird ersetzt (`service:
-rest_command.lademonitor_push_session` → `action:
-lademonitor.push_charging_session` mit denselben Daten-Feldern, kein
-`Authorization`-Header mehr nötig).
+**Migration von einer bestehenden `rest_command`-Automation mit eigenen
+Helfern**: `packages/lademonitor.yaml` (die `input_text`-, `input_number`-
+und `rest_command`-Definitionen) kann komplett gelöscht werden. Die
+Automation selbst wandert in deine normalen Automationen und wird wie oben
+umgeschrieben – Trigger und die `choose`-Struktur bleiben identisch, nur die
+beiden `action`-Blöcke ändern sich (`input_number.set_value`/
+`input_text.set_value` → `lademonitor.begin_charging_session`,
+`rest_command.lademonitor_push_session` → `lademonitor.end_charging_session`,
+kein `Authorization`-Header mehr nötig).
+
+Für Fälle, in denen bereits alle Werte in einem Rutsch vorliegen (z.B.
+Import aus einer anderen Quelle statt eines Ladebeginn/-ende-Ereignisses),
+gibt es weiterhin **`lademonitor.push_charging_session`** – nimmt alle Felder
+in einem Aufruf entgegen (`vehicle_external_id`, `external_session_id`,
+`start_time`, `end_time`, `charging_type`, `soc_start`, `soc_end`,
+`odometer_km`, `latitude`, `longitude`, `energy_kwh`).
 
 ## Bekannte Einschränkung
 

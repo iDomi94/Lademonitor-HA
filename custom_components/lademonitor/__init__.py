@@ -1,5 +1,5 @@
 """Lademonitor Integration - Setup/Unload des ConfigEntry, Coordinator +
-API-Client, und der Push-Service als Ersatz für den bisherigen
+API-Client, und die Push-Services als Ersatz für den bisherigen
 rest_command-Aufruf in der Home-Assistant-Automation des Server-Repos."""
 
 from __future__ import annotations
@@ -10,9 +10,10 @@ from datetime import timedelta
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 from .api import LademonitorApiClient, LademonitorAuthError, LademonitorConnectionError
 from .const import (
@@ -23,9 +24,12 @@ from .const import (
     CONF_USERNAME,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    SERVICE_BEGIN_CHARGING_SESSION,
+    SERVICE_END_CHARGING_SESSION,
     SERVICE_PUSH_CHARGING_SESSION,
 )
 from .coordinator import LademonitorCoordinator
+from .session_store import SessionStore
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
@@ -41,6 +45,26 @@ PUSH_SESSION_SCHEMA = vol.Schema(
         vol.Optional("end_time"): cv.string,
         vol.Optional("charging_type"): cv.string,
         vol.Optional("soc_start"): vol.Coerce(int),
+        vol.Optional("soc_end"): vol.Coerce(int),
+        vol.Optional("odometer_km"): vol.Coerce(int),
+        vol.Optional("latitude"): vol.Coerce(float),
+        vol.Optional("longitude"): vol.Coerce(float),
+        vol.Optional("energy_kwh"): vol.Coerce(float),
+    }
+)
+
+BEGIN_SESSION_SCHEMA = vol.Schema(
+    {
+        vol.Required("vehicle_external_id"): cv.string,
+        vol.Optional("soc_start"): vol.Coerce(int),
+        vol.Optional("charging_type"): cv.string,
+    }
+)
+
+END_SESSION_SCHEMA = vol.Schema(
+    {
+        vol.Required("vehicle_external_id"): cv.string,
+        vol.Optional("external_session_id"): cv.string,
         vol.Optional("soc_end"): vol.Coerce(int),
         vol.Optional("odometer_km"): vol.Coerce(int),
         vol.Optional("latitude"): vol.Coerce(float),
@@ -81,27 +105,75 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await coordinator.async_config_entry_first_refresh()
 
+    session_store = SessionStore(hass, entry.entry_id)
+    await session_store.async_load()
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "client": client,
         "coordinator": coordinator,
         "vehicles": vehicles,
+        "session_store": session_store,
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     async def _async_push_charging_session(call: ServiceCall) -> None:
+        """Ein einzelner Call mit allen Feldern - für Fälle, in denen bereits
+        alle Werte vorliegen (z.B. andere Fahrzeug-Integration liefert schon
+        einen fertigen Session-Datensatz)."""
         payload = {key: value for key, value in call.data.items() if value is not None}
         await client.async_push_charging_session(payload)
 
-    # Ein Service für alle Config Entries (nur ein Lademonitor-Account im
-    # typischen Ein-Haushalt-Setup vorgesehen) - bei mehreren Entries nutzt
-    # der Service den Client des zuletzt eingerichteten Accounts.
+    async def _async_begin_charging_session(call: ServiceCall) -> None:
+        """Beim Einstecken/Ladebeginn aufrufen - merkt SoC-Start/Startzeit/
+        Lade-Art intern (siehe session_store.py), ersetzt die bisher dafür
+        nötigen input_text/input_number-Helfer."""
+        await session_store.async_begin(
+            call.data["vehicle_external_id"],
+            call.data.get("soc_start"),
+            call.data.get("charging_type"),
+        )
+
+    async def _async_end_charging_session(call: ServiceCall) -> None:
+        """Bei Ladeende aufrufen - holt die bei begin_charging_session
+        gemerkten Werte und ergänzt sie um die hier übergebenen Endwerte,
+        dann derselbe Push wie push_charging_session."""
+        vehicle_external_id = call.data["vehicle_external_id"]
+        pending = session_store.get(vehicle_external_id)
+        if pending is None:
+            raise HomeAssistantError(
+                f"Kein offener Ladevorgang für '{vehicle_external_id}' gemerkt - "
+                "wurde lademonitor.begin_charging_session beim Einstecken aufgerufen?"
+            )
+
+        payload = {
+            "vehicle_external_id": vehicle_external_id,
+            "external_session_id": call.data.get("external_session_id") or pending["start_time"],
+            "start_time": pending["start_time"],
+            "end_time": dt_util.now().isoformat(),
+            "charging_type": pending["charging_type"],
+            "soc_start": pending["soc_start"],
+            **{
+                key: value
+                for key, value in call.data.items()
+                if key not in ("vehicle_external_id", "external_session_id") and value is not None
+            },
+        }
+        await client.async_push_charging_session(payload)
+        await session_store.async_clear(vehicle_external_id)
+
+    # Services für alle Config Entries (nur ein Lademonitor-Account im
+    # typischen Ein-Haushalt-Setup vorgesehen) - bei mehreren Entries nutzen
+    # die Services Client/Store des zuletzt eingerichteten Accounts.
     hass.services.async_register(
-        DOMAIN,
-        SERVICE_PUSH_CHARGING_SESSION,
-        _async_push_charging_session,
-        schema=PUSH_SESSION_SCHEMA,
+        DOMAIN, SERVICE_PUSH_CHARGING_SESSION, _async_push_charging_session, schema=PUSH_SESSION_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_BEGIN_CHARGING_SESSION, _async_begin_charging_session, schema=BEGIN_SESSION_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_END_CHARGING_SESSION, _async_end_charging_session, schema=END_SESSION_SCHEMA
     )
 
     return True
@@ -117,4 +189,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
         if not hass.data[DOMAIN]:
             hass.services.async_remove(DOMAIN, SERVICE_PUSH_CHARGING_SESSION)
+            hass.services.async_remove(DOMAIN, SERVICE_BEGIN_CHARGING_SESSION)
+            hass.services.async_remove(DOMAIN, SERVICE_END_CHARGING_SESSION)
     return unload_ok
