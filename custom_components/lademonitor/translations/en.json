@@ -1,0 +1,53 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Lademonitor",
+        "description": "Enter the credentials of your Lademonitor server (same login as the web UI).",
+        "data": {
+          "base_url": "Server URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Lademonitor - reauthenticate",
+        "description": "The stored token became invalid (e.g. after a logout on the server). Please re-enter your password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password",
+      "cannot_connect": "Could not reach the server - check the server URL"
+    },
+    "abort": {
+      "already_configured": "This account is already configured",
+      "reauth_successful": "Re-authentication successful"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Lademonitor options",
+        "data": {
+          "scan_interval_minutes": "Polling interval (minutes)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_cost": { "name": "Total cost" },
+      "total_kwh": { "name": "Total energy charged" },
+      "avg_price_per_kwh": { "name": "Average price per kWh" },
+      "avg_consumption_kwh_per_100km": { "name": "Average consumption" },
+      "price_per_100km": { "name": "Cost per 100 km" },
+      "total_km_driven": { "name": "Total distance driven" },
+      "ac_share_pct": { "name": "AC share" },
+      "dc_share_pct": { "name": "DC share" },
+      "total_sessions": { "name": "Charging sessions" }
+    }
+  }
+}

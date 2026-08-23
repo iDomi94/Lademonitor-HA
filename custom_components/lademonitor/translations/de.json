@@ -1,0 +1,53 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lademonitor verbinden",
+        "description": "Zugangsdaten deines Lademonitor-Servers (gleiches Login wie im Web-UI).",
+        "data": {
+          "base_url": "Server-URL",
+          "username": "Benutzername",
+          "password": "Passwort"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Lademonitor - erneut anmelden",
+        "description": "Das gespeicherte Token wurde ungültig (z.B. durch Logout auf dem Server). Bitte Passwort erneut eingeben.",
+        "data": {
+          "password": "Passwort"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Nutzername oder Passwort falsch",
+      "cannot_connect": "Server nicht erreichbar - Server-URL prüfen"
+    },
+    "abort": {
+      "already_configured": "Dieser Account ist bereits eingerichtet",
+      "reauth_successful": "Erneute Anmeldung erfolgreich"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Lademonitor-Optionen",
+        "data": {
+          "scan_interval_minutes": "Abfrageintervall (Minuten)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_cost": { "name": "Gesamtkosten" },
+      "total_kwh": { "name": "Gesamt geladene Energie" },
+      "avg_price_per_kwh": { "name": "Ø Preis pro kWh" },
+      "avg_consumption_kwh_per_100km": { "name": "Ø Verbrauch" },
+      "price_per_100km": { "name": "Kosten pro 100 km" },
+      "total_km_driven": { "name": "Gefahrene Strecke gesamt" },
+      "ac_share_pct": { "name": "AC-Anteil" },
+      "dc_share_pct": { "name": "DC-Anteil" },
+      "total_sessions": { "name": "Ladevorgänge" }
+    }
+  }
+}

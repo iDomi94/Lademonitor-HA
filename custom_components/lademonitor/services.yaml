@@ -1,0 +1,77 @@
+push_charging_session:
+  name: Ladevorgang übertragen
+  description: >-
+    Überträgt einen automatisch erkannten Ladevorgang an den Lademonitor-Server
+    (entspricht POST /api/sessions/auto). Ersetzt den bisherigen
+    rest_command-Aufruf aus der manuell konfigurierten Automation - Auth läuft
+    automatisch über diese Integration.
+  fields:
+    vehicle_external_id:
+      name: Fahrzeug-ID
+      description: Externe ID des Fahrzeugs, wie in den Lademonitor-Einstellungen hinterlegt.
+      required: true
+      example: enyaq
+      selector:
+        text:
+    external_session_id:
+      name: Session-ID
+      description: Eindeutige ID zur Duplikatserkennung (z.B. Zeitstempel des Ladebeginns).
+      required: true
+      example: "20260809_1432"
+      selector:
+        text:
+    start_time:
+      name: Startzeit
+      description: ISO-8601-Zeitstempel des Ladebeginns.
+      required: true
+      example: "2026-08-09T14:05:00"
+      selector:
+        text:
+    end_time:
+      name: Endzeit
+      description: ISO-8601-Zeitstempel des Ladeendes.
+      selector:
+        text:
+    charging_type:
+      name: Lade-Art
+      description: AC oder DC (Groß-/Kleinschreibung egal, Server normalisiert selbst).
+      selector:
+        select:
+          options:
+            - "AC"
+            - "DC"
+    soc_start:
+      name: Akkustand Start (%)
+      selector:
+        number:
+          min: 0
+          max: 100
+    soc_end:
+      name: Akkustand Ende (%)
+      selector:
+        number:
+          min: 0
+          max: 100
+    odometer_km:
+      name: Kilometerstand
+      selector:
+        number:
+          min: 0
+          mode: box
+    latitude:
+      name: Breitengrad
+      selector:
+        number:
+          mode: box
+    longitude:
+      name: Längengrad
+      selector:
+        number:
+          mode: box
+    energy_kwh:
+      name: Geladene Energie (kWh)
+      description: Optional - der Server schätzt sonst über SoC-Delta × Akkukapazität.
+      selector:
+        number:
+          min: 0
+          mode: box
