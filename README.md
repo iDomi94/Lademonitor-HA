@@ -57,45 +57,53 @@ jedes Fahrzeug übertragen, das einen Lade-Status-Sensor mit einem
 `charging_interrupted` (alle vier = „verbunden/aktiv"). Die Session-Grenze
 ist der Übergang zwischen `connect_cable` und einem der vier aktiven Werte:
 
+Direkt so in **Einstellungen → Automationen → Automation erstellen → In YAML
+bearbeiten** einfügbar (kein `automation:`-Wrapper, kein `id:` nötig – die
+UI legt beides selbst an; für `automations.yaml`/ein Package siehe Hinweis
+unten):
+
 ```yaml
-automation:
-  - id: enyaq_lademonitor_push
-    alias: Enyaq Ladevorgang → Lademonitor
-    triggers:
-      - trigger: state
-        entity_id: sensor.skoda_enyaq_charging_state
-    actions:
-      - choose:
-          # connect_cable -> aktiver Zustand: Ladung beginnt, Startwerte merken
-          - conditions:
-              - condition: template
-                value_template: >-
-                  {{ trigger.from_state.state == 'connect_cable'
-                     and trigger.to_state.state in
-                       ['ready_for_charging','conserving','charging','charging_interrupted'] }}
-            sequence:
-              - action: lademonitor.begin_charging_session
-                data:
-                  vehicle_external_id: enyaq
-                  soc_start: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
-                  # Sensor liefert klein ('ac'/'dc') - Server normalisiert das selbst.
-                  charging_type: "{{ states('sensor.skoda_enyaq_charge_type') }}"
-          # aktiver Zustand -> connect_cable: Ladung beendet, Push an Lademonitor
-          - conditions:
-              - condition: template
-                value_template: >-
-                  {{ trigger.from_state.state in
-                       ['ready_for_charging','conserving','charging','charging_interrupted']
-                     and trigger.to_state.state == 'connect_cable' }}
-            sequence:
-              - action: lademonitor.end_charging_session
-                data:
-                  vehicle_external_id: enyaq
-                  soc_end: "{{ states('sensor.skoda_enyaq_battery_percentage') | int }}"
-                  odometer_km: "{{ states('sensor.skoda_enyaq_mileage') | int }}"
-                  latitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'latitude') }}"
-                  longitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'longitude') }}"
+alias: Enyaq Ladevorgang → Lademonitor
+triggers:
+  - trigger: state
+    entity_id: sensor.skoda_enyaq_charging_state
+actions:
+  - choose:
+      # connect_cable -> aktiver Zustand: Ladung beginnt, Startwerte merken
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.from_state.state == 'connect_cable'
+                 and trigger.to_state.state in
+                   ['ready_for_charging','conserving','charging','charging_interrupted'] }}
+        sequence:
+          - action: lademonitor.begin_charging_session
+            data:
+              vehicle_external_id: enyaq
+              soc_start: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
+              # Sensor liefert klein ('ac'/'dc') - Server normalisiert das selbst.
+              charging_type: "{{ states('sensor.skoda_enyaq_charge_type') }}"
+      # aktiver Zustand -> connect_cable: Ladung beendet, Push an Lademonitor
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.from_state.state in
+                   ['ready_for_charging','conserving','charging','charging_interrupted']
+                 and trigger.to_state.state == 'connect_cable' }}
+        sequence:
+          - action: lademonitor.end_charging_session
+            data:
+              vehicle_external_id: enyaq
+              soc_end: "{{ states('sensor.skoda_enyaq_battery_percentage') | int }}"
+              odometer_km: "{{ states('sensor.skoda_enyaq_mileage') | int }}"
+              latitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'latitude') }}"
+              longitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'longitude') }}"
 ```
+
+Für `automations.yaml` oder ein eigenes Package stattdessen als Listeneintrag
+unter dem Top-Level-Key `automation:` ablegen, mit einer zusätzlichen eigenen
+`id:` (z.B. `id: enyaq_lademonitor_push`) vor `alias:` – dieselben Felder,
+nur eine Einrückungsebene tiefer.
 
 `energy_kwh` wird bewusst nicht mitgeschickt – der Server schätzt es
 serverseitig zuverlässiger aus SoC-Delta × Akkukapazität (MySkoda liefert
