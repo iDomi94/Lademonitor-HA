@@ -49,6 +49,48 @@ Services, die zusammenspielen – SoC-Start/Startzeit/Lade-Art müssen dafür
   Endwerten und **überträgt den kompletten Ladevorgang an den Server**
   (entspricht `POST /api/sessions/auto`).
 
+### Blueprint (empfohlen)
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FiDomi94%2FLademonitor-HA%2Fmain%2Fblueprints%2Fautomation%2Flademonitor%2Fcharging_session.yaml)
+
+Deckt `begin_charging_session`/`end_charging_session` ab, inklusive
+optionaler Mobile-App-Benachrichtigung bei Ladeende („Ladevorgang zu
+Lademonitor gesendet: Start … → Ende …, SoC …% → …%, AC/DC"). Einfach über
+den Button importieren und im Formular den Lade-Status-Sensor, Akkustand-
+Sensor sowie (optional) Lade-Art-/Kilometerstand-/Standort-Sensor und die
+Notify-Entity für die Benachrichtigung auswählen – Ruhezustand/aktive
+Zustände sind mit den Enyaq/MySkoda-Werten vorbelegt, aber für andere
+Fahrzeuge anpassbar. Quelle:
+[`blueprints/automation/lademonitor/charging_session.yaml`](blueprints/automation/lademonitor/charging_session.yaml).
+
+Der Import-Button verlinkt einfach auf eine rohe YAML-Datei – dafür braucht
+es kein Gist, eine Raw-GitHub-URL aus einem öffentlichen Repo (wie hier)
+funktioniert genauso.
+
+Die Benachrichtigung nutzt die bei `end_charging_session` neu eingeführte
+Service-Response: Der Service liefert den kompletten übertragenen
+Ladevorgang (inkl. der bei `begin_charging_session` gemerkten Startwerte)
+zurück, abrufbar per `response_variable` – für eigene Automationen z.B. so:
+
+```yaml
+- action: lademonitor.end_charging_session
+  data:
+    vehicle_external_id: enyaq
+    soc_end: "{{ states('sensor.skoda_enyaq_battery_percentage') | int }}"
+  response_variable: lademonitor_session
+- action: notify.send_message
+  target:
+    entity_id: notify.mein_handy
+  data:
+    message: >-
+      Ladevorgang zu Lademonitor gesendet: Start
+      {{ lademonitor_session.start_time }} → Ende {{ lademonitor_session.end_time }},
+      SoC {{ lademonitor_session.soc_start }}% → {{ lademonitor_session.soc_end }}%,
+      {{ lademonitor_session.charging_type }}
+```
+
+### Manuell (ohne Blueprint)
+
 Vollständiges Beispiel für MySkoda/Škoda Enyaq (dieselbe Logik lässt sich auf
 jedes Fahrzeug übertragen, das einen Lade-Status-Sensor mit einem
 "eingesteckt, aber nicht ladend"-Zustand liefert). Der Škoda-Sensor
@@ -98,7 +140,24 @@ actions:
               odometer_km: "{{ states('sensor.skoda_enyaq_mileage') | int }}"
               latitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'latitude') }}"
               longitude: "{{ state_attr('device_tracker.skoda_enyaq_position', 'longitude') }}"
+            response_variable: lademonitor_session
+          - action: notify.send_message
+            target:
+              entity_id: notify.mein_handy
+            data:
+              message: >-
+                Ladevorgang zu Lademonitor gesendet: Start
+                {{ lademonitor_session.start_time }} → Ende {{ lademonitor_session.end_time }},
+                SoC {{ lademonitor_session.soc_start }}% → {{ lademonitor_session.soc_end }}%,
+                {{ lademonitor_session.charging_type }}
 ```
+
+`notify.mein_handy` durch die eigene Notify-Entity der Home Assistant App
+ersetzen (Einstellungen → Geräte & Dienste → Entitäten → Domäne „notify").
+`response_variable` greift auf die neu eingeführte Service-Response von
+`end_charging_session` zu (siehe Blueprint-Abschnitt oben) – so müssen
+Start-SoC/-Zeit/Lade-Art für die Benachrichtigung nicht separat gemerkt
+werden.
 
 Für `automations.yaml` oder ein eigenes Package stattdessen als Listeneintrag
 unter dem Top-Level-Key `automation:` ablegen, mit einer zusätzlichen eigenen

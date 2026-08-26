@@ -33,7 +33,9 @@ end_charging_session:
     Bei Ladeende aufrufen - kombiniert die bei "Ladevorgang beginnen"
     gemerkten Werte mit den hier übergebenen Endwerten und überträgt den
     kompletten Ladevorgang an den Server. Schlägt fehl, wenn vorher kein
-    begin_charging_session für dasselbe Fahrzeug aufgerufen wurde.
+    begin_charging_session für dasselbe Fahrzeug aufgerufen wurde. Gibt den
+    kompletten Ladevorgang (inkl. der gemerkten Startwerte) als Response
+    zurück - z.B. für eine Benachrichtigung per response_variable nutzbar.
   fields:
     vehicle_external_id:
       name: Fahrzeug-ID
@@ -76,6 +78,8 @@ end_charging_session:
         number:
           min: 0
           mode: box
+  response:
+    optional: true
 
 push_charging_session:
   name: Ladevorgang übertragen (alle Felder in einem Call)

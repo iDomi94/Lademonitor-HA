@@ -1,0 +1,156 @@
+blueprint:
+  name: Lademonitor – Ladevorgang übertragen + Benachrichtigung
+  description: >-
+    Erkennt Ladebeginn und Ladeende über einen Lade-Status-Sensor (z.B. der
+    MySkoda-Sensor `sensor.skoda_enyaq_charging_state`) und überträgt den
+    Ladevorgang per `lademonitor.begin_charging_session` /
+    `lademonitor.end_charging_session` an den Lademonitor-Server. Bei
+    Ladeende wird optional eine Mobile-App-Benachrichtigung mit Start-/
+    Endzeit, SoC-Verlauf und Lade-Art (AC/DC) verschickt.
+
+    Passt auf jedes Fahrzeug, dessen Status-Sensor einen "verbunden, aber
+    nicht ladend"-Ruhezustand sowie einen oder mehrere aktive Ladezustände
+    kennt (Standardwerte sind am Škoda/MySkoda-Sensor orientiert, siehe
+    [README](https://github.com/iDomi94/Lademonitor-HA#ladevorgänge-automatisch-übertragen)).
+  domain: automation
+  source_url: https://github.com/iDomi94/Lademonitor-HA/blob/main/blueprints/automation/lademonitor/charging_session.yaml
+  input:
+    vehicle_external_id:
+      name: Fahrzeug-ID
+      description: Externe ID des Fahrzeugs, wie in den Lademonitor-Einstellungen hinterlegt.
+      selector:
+        text:
+    charging_state_entity:
+      name: Lade-Status-Sensor
+      description: >-
+        Sensor mit einem Ruhezustand ("eingesteckt, nicht ladend") und einem
+        oder mehreren aktiven Ladezuständen, z.B.
+        sensor.skoda_enyaq_charging_state.
+      selector:
+        entity:
+          domain: sensor
+    idle_state:
+      name: Ruhezustand
+      description: Sensorwert bei eingestecktem, aber nicht ladendem Fahrzeug.
+      default: connect_cable
+      selector:
+        text:
+    active_states:
+      name: Aktive Ladezustände
+      description: >-
+        Kommagetrennte Liste aller Sensorwerte, die "verbunden und aktiv"
+        bedeuten (Ladebeginn = Übergang vom Ruhezustand hierhin, Ladeende =
+        Übergang von hier zum Ruhezustand).
+      default: "ready_for_charging,conserving,charging,charging_interrupted"
+      selector:
+        text:
+    battery_soc_entity:
+      name: Akkustand-Sensor (%)
+      description: Wird sowohl bei Ladebeginn als auch bei Ladeende ausgelesen.
+      selector:
+        entity:
+          domain: sensor
+          device_class: battery
+    charging_type_entity:
+      name: Lade-Art-Sensor (AC/DC)
+      description: >-
+        Optional, wird bei Ladebeginn ausgelesen. Groß-/Kleinschreibung
+        egal - der Server normalisiert das selbst.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    odometer_entity:
+      name: Kilometerstand-Sensor
+      description: Optional, wird bei Ladeende ausgelesen.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    device_tracker_entity:
+      name: Standort-Sensor
+      description: >-
+        Optional. Eine device_tracker-Entität, die den GPS-Standort des
+        Fahrzeugs liefert (Attribute "latitude"/"longitude") - meist von der
+        Fahrzeug-Integration selbst angelegt, z.B.
+        device_tracker.skoda_enyaq_position bei MySkoda. Nicht zu
+        verwechseln mit einem Standort-Sensor des Handys - hier soll der
+        Standort des Autos beim Laden rein. Wird bei Ladeende ausgelesen.
+      default: ""
+      selector:
+        entity:
+          domain: device_tracker
+    notify_target:
+      name: Mobile-App-Benachrichtigung
+      description: >-
+        Optional. Notify-Entity der Home Assistant Mobile App
+        (Einstellungen → Geräte & Dienste → Entitäten → Domäne "notify"),
+        an die bei Ladeende eine Push-Benachrichtigung geschickt wird. Leer
+        lassen, um keine Benachrichtigung zu verschicken.
+      default: ""
+      selector:
+        entity:
+          domain: notify
+
+mode: parallel
+max_exceeded: silent
+
+variables:
+  vehicle_external_id: !input vehicle_external_id
+  idle_state: !input idle_state
+  active_states_raw: !input active_states
+  battery_soc_entity: !input battery_soc_entity
+  charging_type_entity: !input charging_type_entity
+  odometer_entity: !input odometer_entity
+  device_tracker_entity: !input device_tracker_entity
+  notify_target: !input notify_target
+
+triggers:
+  - trigger: state
+    entity_id: !input charging_state_entity
+
+actions:
+  - variables:
+      active_states: "{{ active_states_raw.split(',') | map('trim') | list }}"
+  - choose:
+      # Ruhezustand -> aktiver Zustand: Ladung beginnt, Startwerte merken
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.from_state.state == idle_state
+                 and trigger.to_state.state in active_states }}
+        sequence:
+          - action: lademonitor.begin_charging_session
+            data:
+              vehicle_external_id: "{{ vehicle_external_id }}"
+              soc_start: "{{ states(battery_soc_entity) if battery_soc_entity else None }}"
+              charging_type: "{{ states(charging_type_entity) if charging_type_entity else None }}"
+      # aktiver Zustand -> Ruhezustand: Ladung beendet, Push an Lademonitor
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.from_state.state in active_states
+                 and trigger.to_state.state == idle_state }}
+        sequence:
+          - action: lademonitor.end_charging_session
+            data:
+              vehicle_external_id: "{{ vehicle_external_id }}"
+              soc_end: "{{ states(battery_soc_entity) | int if battery_soc_entity else None }}"
+              odometer_km: "{{ states(odometer_entity) | int if odometer_entity else None }}"
+              latitude: "{{ state_attr(device_tracker_entity, 'latitude') if device_tracker_entity else None }}"
+              longitude: "{{ state_attr(device_tracker_entity, 'longitude') if device_tracker_entity else None }}"
+            response_variable: lademonitor_session
+          - if:
+              - condition: template
+                value_template: "{{ notify_target != '' }}"
+            then:
+              - action: notify.send_message
+                target:
+                  entity_id: "{{ notify_target }}"
+                data:
+                  message: >-
+                    Ladevorgang zu Lademonitor gesendet: Start
+                    {{ as_timestamp(lademonitor_session.start_time) | timestamp_custom('%d.%m. %H:%M') }} →
+                    Ende {{ as_timestamp(lademonitor_session.end_time) | timestamp_custom('%d.%m. %H:%M') }},
+                    SoC {{ lademonitor_session.soc_start }}% → {{ lademonitor_session.soc_end }}%,
+                    {{ lademonitor_session.charging_type }}

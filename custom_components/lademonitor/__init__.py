@@ -9,7 +9,7 @@ from datetime import timedelta
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -135,10 +135,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             call.data.get("charging_type"),
         )
 
-    async def _async_end_charging_session(call: ServiceCall) -> None:
+    async def _async_end_charging_session(call: ServiceCall) -> ServiceResponse:
         """Bei Ladeende aufrufen - holt die bei begin_charging_session
         gemerkten Werte und ergänzt sie um die hier übergebenen Endwerte,
-        dann derselbe Push wie push_charging_session."""
+        dann derselbe Push wie push_charging_session. Gibt den kompletten
+        Payload als Response zurück, damit Automationen (z.B. für eine
+        Benachrichtigung) an die bei begin_charging_session gemerkten
+        Startwerte kommen, ohne diese selbst zwischenspeichern zu müssen."""
         vehicle_external_id = call.data["vehicle_external_id"]
         pending = session_store.get(vehicle_external_id)
         if pending is None:
@@ -162,6 +165,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         }
         await client.async_push_charging_session(payload)
         await session_store.async_clear(vehicle_external_id)
+        return payload
 
     # Services für alle Config Entries (nur ein Lademonitor-Account im
     # typischen Ein-Haushalt-Setup vorgesehen) - bei mehreren Entries nutzen
@@ -173,7 +177,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DOMAIN, SERVICE_BEGIN_CHARGING_SESSION, _async_begin_charging_session, schema=BEGIN_SESSION_SCHEMA
     )
     hass.services.async_register(
-        DOMAIN, SERVICE_END_CHARGING_SESSION, _async_end_charging_session, schema=END_SESSION_SCHEMA
+        DOMAIN,
+        SERVICE_END_CHARGING_SESSION,
+        _async_end_charging_session,
+        schema=END_SESSION_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
     return True
