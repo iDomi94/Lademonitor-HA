@@ -323,7 +323,10 @@ eine Karte mit eigenem `data_generator` in ein Chart umwandeln. Dafür vorher
 [`apexcharts-card`](https://github.com/RomRider/apexcharts-card) über HACS
 → Frontend installieren (kein Bestandteil von Home Assistant selbst).
 
-Anbieter-Verteilung, kWh und Kosten nebeneinander (Donut, wie im Web-UI).
+Anbieter-Verteilung, kWh und Kosten untereinander (Donut, wie im Web-UI).
+
+![Anbieter-Verteilung als zwei Donut-Diagramme](docs/screenshots/anbieter-donut.jpg)
+
 Wichtig: Bei `chart_type: donut`/`pie` steht **eine Serie für genau eine
 Slice** (`apexcharts-card` nimmt pro Serie den letzten berechneten Wert) -
 es gibt keinen Automatismus, der eine Liste wie `by_provider` von selbst in
@@ -341,7 +344,7 @@ Serien nur noch referenziert (`*kwh_entity`/`*cost_entity`):
 <summary>YAML anzeigen</summary>
 
 ```yaml
-type: horizontal-stack
+type: vertical-stack
 cards:
   - type: custom:apexcharts-card
     header:
@@ -448,7 +451,7 @@ dünneren Ring statt eines kleineren Kreises stattdessen
 
 Kosten pro Monat (Balken):
 
-<!-- TODO: Screenshot "Kosten pro Monat" einfügen -->
+![Kosten pro Monat](docs/screenshots/kosten-pro-monat.jpg)
 
 <details>
 <summary>YAML anzeigen</summary>
@@ -475,7 +478,7 @@ series:
 
 kWh pro Monat (Balken):
 
-<!-- TODO: Screenshot "kWh pro Monat" einfügen -->
+![kWh pro Monat](docs/screenshots/kwh-pro-monat.jpg)
 
 <details>
 <summary>YAML anzeigen</summary>
@@ -503,7 +506,7 @@ series:
 Ø Verbrauch pro Monat (Balken, Monate ohne berechenbaren Wert werden
 übersprungen):
 
-<!-- TODO: Screenshot "Ø Verbrauch pro Monat" einfügen -->
+![Ø Verbrauch pro Monat](docs/screenshots/verbrauch-pro-monat.jpg)
 
 <details>
 <summary>YAML anzeigen</summary>
