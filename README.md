@@ -220,9 +220,8 @@ Integration (Einstellungen → Geräte & Dienste → Lademonitor → Neu laden).
 Im selben Stil wie das Dashboard in App/Web-UI: ein Kachel-Raster mit den
 Summen-Werten, darunter der AC/DC-Anteil als zwei Gauges in Blau/Orange
 (entspricht dem AC/DC-Balken in App/Web-UI). Anbieter-Kuchendiagramme und
-Monats-Charts aus App/Web-UI fehlen hier bewusst – die Integration liefert
-nur die neun Summen-Sensoren, keine Aufschlüsselung nach Anbieter/Monat;
-dafür bleibt die Web-UI die Quelle.
+Monats-Charts wie in App/Web-UI gibt es weiter unten unter „Anbieter- und
+Monats-Charts" – dafür reichen native Lovelace-Karten aber nicht mehr aus.
 
 Kein fertiges Dashboard zum Importieren (Lovelace kennt anders als
 Automation-Blueprints keinen URL-Import) – stattdessen unten einzelne
@@ -242,6 +241,9 @@ einem anderen Fahrzeugnamen weichen die tatsächlichen IDs davon ab, siehe
 Hinweis oben.
 
 Kachel-Raster mit den sieben Summen-Werten:
+
+<details>
+<summary>YAML anzeigen</summary>
 
 ```yaml
 type: grid
@@ -278,7 +280,12 @@ cards:
     icon: mdi:map-marker-distance
 ```
 
+</details>
+
 AC/DC-Anteil als zwei Gauges nebeneinander:
+
+<details>
+<summary>YAML anzeigen</summary>
 
 ```yaml
 type: horizontal-stack
@@ -305,6 +312,8 @@ cards:
         color: "#ff9800"
 ```
 
+</details>
+
 ### Anbieter- und Monats-Charts (Voraussetzung: `apexcharts-card`)
 
 Für die Anbieter-Kuchendiagramme und Monats-Balken aus App/Web-UI reichen
@@ -314,7 +323,22 @@ eine Karte mit eigenem `data_generator` in ein Chart umwandeln. Dafür vorher
 [`apexcharts-card`](https://github.com/RomRider/apexcharts-card) über HACS
 → Frontend installieren (kein Bestandteil von Home Assistant selbst).
 
-Anbieter-Verteilung, kWh und Kosten nebeneinander (Donut, wie im Web-UI):
+Anbieter-Verteilung, kWh und Kosten nebeneinander (Donut, wie im Web-UI).
+Wichtig: Bei `chart_type: donut`/`pie` steht **eine Serie für genau eine
+Slice** (`apexcharts-card` nimmt pro Serie den letzten berechneten Wert) -
+es gibt keinen Automatismus, der eine Liste wie `by_provider` von selbst in
+mehrere Slices auffächert, und der Name einer Serie ist ein statischer
+YAML-Wert (nicht per `data_generator` dynamisch benennbar). Deshalb sechs
+feste Serien-Slots ("Platz 1"–"Platz 5" + "Andere"), deren **Werte** aber
+automatisch aus `by_provider` befüllt werden – der Server liefert die Liste
+bereits absteigend nach kWh sortiert (siehe `Lademonitor-Server/CLAUDE.md`),
+Index 0–4 sind also automatisch die fünf größten Anbieter, alles ab Index 5
+läuft automatisch in "Andere". Die Entität wird dafür einmal per
+YAML-Anker (`&kwh_entity`/`&cost_entity`) gesetzt und in den restlichen
+Serien nur noch referenziert (`*kwh_entity`/`*cost_entity`):
+
+<details>
+<summary>YAML anzeigen</summary>
 
 ```yaml
 type: horizontal-stack
@@ -324,31 +348,117 @@ cards:
       show: true
       title: kWh pro Anbieter
     chart_type: donut
+    apex_config:
+      chart:
+        height: 200px
     series:
-      - entity: sensor.skoda_enyaq_total_kwh
-        name: kWh
+      - entity: &kwh_entity sensor.skoda_enyaq_total_kwh
+        name: Platz 1
         data_generator: |
-          return entity.attributes.by_provider.map(p => [p.provider_name, p.total_kwh]);
+          const p = entity.attributes.by_provider[0];
+          return [[Date.now(), p ? p.total_kwh : 0]];
+      - entity: *kwh_entity
+        name: Platz 2
+        data_generator: |
+          const p = entity.attributes.by_provider[1];
+          return [[Date.now(), p ? p.total_kwh : 0]];
+      - entity: *kwh_entity
+        name: Platz 3
+        data_generator: |
+          const p = entity.attributes.by_provider[2];
+          return [[Date.now(), p ? p.total_kwh : 0]];
+      - entity: *kwh_entity
+        name: Platz 4
+        data_generator: |
+          const p = entity.attributes.by_provider[3];
+          return [[Date.now(), p ? p.total_kwh : 0]];
+      - entity: *kwh_entity
+        name: Platz 5
+        data_generator: |
+          const p = entity.attributes.by_provider[4];
+          return [[Date.now(), p ? p.total_kwh : 0]];
+      - entity: *kwh_entity
+        name: Andere
+        data_generator: |
+          const p = entity.attributes.by_provider[5];
+          return [[Date.now(), p ? p.total_kwh : 0]];
   - type: custom:apexcharts-card
     header:
       show: true
       title: Bezahlt pro Anbieter
     chart_type: donut
+    apex_config:
+      chart:
+        height: 200px
     series:
-      - entity: sensor.skoda_enyaq_total_cost
-        name: "€"
+      - entity: &cost_entity sensor.skoda_enyaq_total_cost
+        name: Platz 1
         data_generator: |
-          return entity.attributes.by_provider.map(p => [p.provider_name, p.total_cost]);
+          const p = entity.attributes.by_provider[0];
+          return [[Date.now(), p ? p.total_cost : 0]];
+      - entity: *cost_entity
+        name: Platz 2
+        data_generator: |
+          const p = entity.attributes.by_provider[1];
+          return [[Date.now(), p ? p.total_cost : 0]];
+      - entity: *cost_entity
+        name: Platz 3
+        data_generator: |
+          const p = entity.attributes.by_provider[2];
+          return [[Date.now(), p ? p.total_cost : 0]];
+      - entity: *cost_entity
+        name: Platz 4
+        data_generator: |
+          const p = entity.attributes.by_provider[3];
+          return [[Date.now(), p ? p.total_cost : 0]];
+      - entity: *cost_entity
+        name: Platz 5
+        data_generator: |
+          const p = entity.attributes.by_provider[4];
+          return [[Date.now(), p ? p.total_cost : 0]];
+      - entity: *cost_entity
+        name: Andere
+        data_generator: |
+          const p = entity.attributes.by_provider[5];
+          return [[Date.now(), p ? p.total_cost : 0]];
 ```
 
+</details>
+
+`by_provider` ist bereits serverseitig auf Top-5-+-„Andere" gruppiert
+(`sensor.py::_grouped_by_provider`, Port derselben Regel wie in App/Web-UI:
+„Ohne Anbieter" landet unabhängig von seiner Größe immer in „Andere", nie
+als eigene Slice) – die Karte muss also nur noch stumpf `by_provider[0..5]`
+auslesen, kein Sortieren/Filtern/Aufsummieren mehr in der Karten-YAML.
+
+Wichtig zu wissen: Die Anbieter-**Reihenfolge** (welcher Anbieter "Platz 1"
+ist) ist damit voll automatisch – der jeweilige **Name** in Legende/Tooltip
+bleibt aber der statische Platzhalter "Platz 1" usw., weil `apexcharts-card`
+Serien-Namen nicht aus `data_generator` ableiten kann. Wer die echten
+Anbieternamen in der Legende sehen will, muss "Platz 1"–"Platz 5" von Hand
+durch die aktuell führenden Anbieter ersetzen (Entwicklertools → Zustände,
+`by_provider`-Reihenfolge ablesen) – nur dann bei einer Rangänderung erneut
+nötig, die Werte/Gruppierung selbst bleiben immer korrekt.
+
+`apex_config` reicht rohe ApexCharts.js-Optionen durch (`chart.height` oben
+verkleinert den Durchmesser – ApexCharts richtet den Kreis an der kleineren
+der beiden Dimensionen aus, kleinerer Wert = kleinerer Kreis). Für einen
+dünneren Ring statt eines kleineren Kreises stattdessen
+`plotOptions.pie.donut.size` (z.B. `"75%"`) setzen.
+
 Kosten pro Monat (Balken):
+
+<!-- TODO: Screenshot "Kosten pro Monat" einfügen -->
+
+<details>
+<summary>YAML anzeigen</summary>
 
 ```yaml
 type: custom:apexcharts-card
 header:
   show: true
   title: Kosten pro Monat
-graph_span: 1year
+graph_span: 180d
 series:
   - entity: sensor.skoda_enyaq_total_cost
     type: column
@@ -361,14 +471,21 @@ series:
         .map(m => [new Date(m.month + "-01").getTime(), m.total_cost]);
 ```
 
+</details>
+
 kWh pro Monat (Balken):
+
+<!-- TODO: Screenshot "kWh pro Monat" einfügen -->
+
+<details>
+<summary>YAML anzeigen</summary>
 
 ```yaml
 type: custom:apexcharts-card
 header:
   show: true
   title: kWh pro Monat
-graph_span: 1year
+graph_span: 180d
 series:
   - entity: sensor.skoda_enyaq_total_kwh
     type: column
@@ -381,15 +498,22 @@ series:
         .map(m => [new Date(m.month + "-01").getTime(), m.total_kwh]);
 ```
 
+</details>
+
 Ø Verbrauch pro Monat (Balken, Monate ohne berechenbaren Wert werden
 übersprungen):
+
+<!-- TODO: Screenshot "Ø Verbrauch pro Monat" einfügen -->
+
+<details>
+<summary>YAML anzeigen</summary>
 
 ```yaml
 type: custom:apexcharts-card
 header:
   show: true
   title: Ø Verbrauch pro Monat
-graph_span: 1year
+graph_span: 180d
 series:
   - entity: sensor.skoda_enyaq_average_consumption
     type: column
@@ -402,6 +526,18 @@ series:
         .filter(m => m.avg_consumption_kwh_per_100km != null)
         .map(m => [new Date(m.month + "-01").getTime(), m.avg_consumption_kwh_per_100km]);
 ```
+
+</details>
+
+`graph_span` ist ein statischer Wert (kein `data_generator`-Ausdruck) - es
+gibt in `apexcharts-card` keine dokumentierte Möglichkeit, das Zeitfenster
+automatisch an die tatsächlich vorhandene Anzahl Monate anzupassen. `180d`
+oben passt zum aktuellen Datenstand (~6 Monate); wächst die Monats-Historie
+darüber hinaus, muss der Wert von Hand hochgesetzt werden. Bewusst in Tagen
+statt `6month`/`1year`: Die `apexcharts-card`-Doku warnt ausdrücklich, dass
+`month`/`year`-Einheiten bei `graph_span` "inconsistent result[s]" liefern
+können, und empfiehlt Tage. Großzügiger wählen (z.B. `730d` für ~2 Jahre)
+spart künftiges Nachjustieren, zeigt bis dahin aber etwas Leerraum am Rand.
 
 `monthly` kommt vom Server absteigend sortiert (neuester Monat zuerst,
 siehe `Lademonitor-Server/CLAUDE.md`) – das `.slice().reverse()` sorgt dafür,

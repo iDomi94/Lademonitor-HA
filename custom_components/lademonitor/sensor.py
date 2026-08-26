@@ -47,15 +47,43 @@ def _monthly_attrs(*fields: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     return _fn
 
 
+def _grouped_by_provider(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Port derselben Anbieter-Gruppierung, die Web-UI (buildProviderBuckets
+    in backend/app/templates/index.html), iOS-App (ProviderPieChartsSection
+    in DashboardView.swift) und Android-App (providerEntries in
+    DashboardScreen.kt) jede für sich reimplementieren: Top 5 NAMED
+    Anbieter, alles ab Platz 6 UND "Ohne Anbieter" (unabhängig von dessen
+    Größe) landet gemeinsam in einem "Andere"-Posten - by_provider kommt
+    vom Server bereits absteigend nach kWh sortiert (siehe
+    Lademonitor-Server/CLAUDE.md), daher hier kein eigenes Sortieren nötig.
+    Zentral hier statt ein viertes Mal in Dashboard-YAML nachgebaut, damit
+    z.B. eine Lovelace-Karte nur noch stumpf `by_provider[i]` lesen muss."""
+    by_provider = data.get("by_provider", [])
+    named = [p for p in by_provider if p.get("provider_name") != "Ohne Anbieter"]
+    unnamed = [p for p in by_provider if p.get("provider_name") == "Ohne Anbieter"]
+    top = named[:5]
+    rest = named[5:] + unnamed
+    grouped = list(top)
+    if rest:
+        grouped.append(
+            {
+                "provider_name": "Andere",
+                "total_kwh": sum(p.get("total_kwh", 0) for p in rest),
+                "total_cost": sum(p.get("total_cost", 0) for p in rest),
+            }
+        )
+    return grouped
+
+
 def _by_provider_attrs(field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """Analog zu _monthly_attrs, aber für StatsSummary.by_provider
-    (schemas.ProviderStat)."""
+    """Analog zu _monthly_attrs, aber für die (schon auf Top-5-+-Andere
+    gruppierte) StatsSummary.by_provider (schemas.ProviderStat)."""
 
     def _fn(data: dict[str, Any]) -> dict[str, Any]:
         return {
             "by_provider": [
                 {"provider_name": provider["provider_name"], field: provider.get(field)}
-                for provider in data.get("by_provider", [])
+                for provider in _grouped_by_provider(data)
             ]
         }
 
