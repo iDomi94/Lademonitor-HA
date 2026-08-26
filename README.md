@@ -199,3 +199,93 @@ data:
 Fahrzeuge werden beim Einrichten der Integration einmal geladen. Ein später
 im Server neu angelegtes Fahrzeug erscheint erst nach einem Neuladen der
 Integration (Einstellungen → Geräte & Dienste → Lademonitor → Neu laden).
+
+## Dashboard-Karten
+
+Im selben Stil wie das Dashboard in App/Web-UI: ein Kachel-Raster mit den
+Summen-Werten, darunter der AC/DC-Anteil als zwei Gauges in Blau/Orange
+(entspricht dem AC/DC-Balken in App/Web-UI). Anbieter-Kuchendiagramme und
+Monats-Charts aus App/Web-UI fehlen hier bewusst – die Integration liefert
+nur die neun Summen-Sensoren, keine Aufschlüsselung nach Anbieter/Monat;
+dafür bleibt die Web-UI die Quelle.
+
+Kein fertiges Dashboard zum Importieren (Lovelace kennt anders als
+Automation-Blueprints keinen URL-Import) – stattdessen unten einzelne
+Karten zum Kopieren in ein bestehendes Dashboard: **Dashboard bearbeiten →
+Karte hinzufügen → oben rechts „Manuell" → Inhalt einfügen**. Vorher überall
+`sensor.skoda_enyaq_...` per Suchen&Ersetzen auf die eigenen entity_ids
+anpassen (Entwicklertools → Zustände → nach dem Fahrzeugnamen filtern) –
+pro weiterem Fahrzeug einfach nochmal mit anderem Präfix einfügen.
+
+Die `entity_id`s unten orientieren sich am Škoda Enyaq mit englischer
+HA-Sprache (Gerätename "Skoda Enyaq" → Präfix `skoda_enyaq`, Rest aus den
+englischen Entity-Namen in
+[`translations/en.json`](custom_components/lademonitor/translations/en.json)
+abgeleitet, z.B. `total_sessions` → "Charging sessions" →
+`sensor.skoda_enyaq_charging_sessions`) – bei deutscher HA-Sprache oder
+einem anderen Fahrzeugnamen weichen die tatsächlichen IDs davon ab, siehe
+Hinweis oben.
+
+Kachel-Raster mit den sieben Summen-Werten:
+
+```yaml
+type: grid
+columns: 2
+square: false
+cards:
+  - type: tile
+    entity: sensor.skoda_enyaq_charging_sessions
+    name: Ladevorgänge
+    icon: mdi:ev-station
+  - type: tile
+    entity: sensor.skoda_enyaq_total_energy_charged
+    name: Gesamt kWh
+    icon: mdi:lightning-bolt
+  - type: tile
+    entity: sensor.skoda_enyaq_total_cost
+    name: Gesamtkosten
+    icon: mdi:currency-eur
+  - type: tile
+    entity: sensor.skoda_enyaq_average_price_per_kwh
+    name: "Ø Preis/kWh"
+    icon: mdi:cash-multiple
+  - type: tile
+    entity: sensor.skoda_enyaq_average_consumption
+    name: "Ø Verbrauch/100km"
+    icon: mdi:speedometer
+  - type: tile
+    entity: sensor.skoda_enyaq_cost_per_100_km
+    name: Preis/100km
+    icon: mdi:currency-eur
+  - type: tile
+    entity: sensor.skoda_enyaq_total_distance_driven
+    name: Gefahrene Kilometer
+    icon: mdi:map-marker-distance
+```
+
+AC/DC-Anteil als zwei Gauges nebeneinander:
+
+```yaml
+type: horizontal-stack
+cards:
+  - type: gauge
+    entity: sensor.skoda_enyaq_ac_share
+    name: AC
+    min: 0
+    max: 100
+    segments:
+      - from: 0
+        color: "#2196f3"
+      - from: 100
+        color: "#2196f3"
+  - type: gauge
+    entity: sensor.skoda_enyaq_dc_share
+    name: DC
+    min: 0
+    max: 100
+    segments:
+      - from: 0
+        color: "#ff9800"
+      - from: 100
+        color: "#ff9800"
+```
