@@ -325,7 +325,7 @@ eine Karte mit eigenem `data_generator` in ein Chart umwandeln. Dafür vorher
 
 Anbieter-Verteilung, kWh und Kosten untereinander (Donut, wie im Web-UI).
 
-![Anbieter-Verteilung als zwei Donut-Diagramme](docs/screenshots/anbieter-donut.jpg)
+<img src="docs/screenshots/anbieter-donut.jpg" alt="Anbieter-Verteilung als zwei Donut-Diagramme" width="439">
 
 Wichtig: Bei `chart_type: donut`/`pie` steht **eine Serie für genau eine
 Slice** (`apexcharts-card` nimmt pro Serie den letzten berechneten Wert) -
@@ -451,7 +451,7 @@ dünneren Ring statt eines kleineren Kreises stattdessen
 
 Kosten pro Monat (Balken):
 
-![Kosten pro Monat](docs/screenshots/kosten-pro-monat.jpg)
+<img src="docs/screenshots/kosten-pro-monat.jpg" alt="Kosten pro Monat" width="437">
 
 <details>
 <summary>YAML anzeigen</summary>
@@ -478,7 +478,7 @@ series:
 
 kWh pro Monat (Balken):
 
-![kWh pro Monat](docs/screenshots/kwh-pro-monat.jpg)
+<img src="docs/screenshots/kwh-pro-monat.jpg" alt="kWh pro Monat" width="430">
 
 <details>
 <summary>YAML anzeigen</summary>
@@ -506,7 +506,7 @@ series:
 Ø Verbrauch pro Monat (Balken, Monate ohne berechenbaren Wert werden
 übersprungen):
 
-![Ø Verbrauch pro Monat](docs/screenshots/verbrauch-pro-monat.jpg)
+<img src="docs/screenshots/verbrauch-pro-monat.jpg" alt="Ø Verbrauch pro Monat" width="431">
 
 <details>
 <summary>YAML anzeigen</summary>
