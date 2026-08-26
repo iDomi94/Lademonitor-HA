@@ -32,6 +32,21 @@ Gesamt-kWh, Ø Preis/kWh, Ø Verbrauch kWh/100km, Kosten/100km, gefahrene km
 gesamt, AC-/DC-Anteil, Anzahl Ladevorgänge. Abfrageintervall über die
 Integrations-Optionen einstellbar (Standard 15 Minuten).
 
+Einige Sensoren tragen zusätzlich die Monats-/Anbieter-Aufschlüsselung aus
+`GET /api/stats/summary` als Attribut, statt eigener Sensoren dafür:
+
+| Sensor | Attribut(e) |
+| --- | --- |
+| Gesamtkosten | `monthly` (Monat + Kosten), `by_provider` (Anbieter + Kosten) |
+| Gesamt geladene Energie | `monthly` (Monat + kWh), `by_provider` (Anbieter + kWh) |
+| Ø Verbrauch | `monthly` (Monat + Ø Verbrauch) |
+| Ladevorgänge | `monthly` (Monat + Anzahl Ladevorgänge) |
+| AC-Anteil / DC-Anteil | `ac_kwh` / `dc_kwh` (absoluter Wert statt nur Prozent) |
+
+Nutzbar z.B. mit `custom:apexcharts-card` (HACS) für Anbieter-Kuchen- oder
+Monats-Balkendiagramme wie in App/Web-UI – mit nativen Lovelace-Karten
+lassen sich Listen-Attribute nicht direkt als Chart darstellen.
+
 ## Ladevorgänge automatisch übertragen
 
 Für eine Automation, die Ladebeginn und Ladeende an zwei unterschiedlichen
@@ -289,3 +304,105 @@ cards:
       - from: 100
         color: "#ff9800"
 ```
+
+### Anbieter- und Monats-Charts (Voraussetzung: `apexcharts-card`)
+
+Für die Anbieter-Kuchendiagramme und Monats-Balken aus App/Web-UI reichen
+native Lovelace-Karten nicht mehr – die Daten liegen als Listen-Attribute
+(`monthly`, `by_provider`, siehe oben) an den Sensoren, und die kann nur
+eine Karte mit eigenem `data_generator` in ein Chart umwandeln. Dafür vorher
+[`apexcharts-card`](https://github.com/RomRider/apexcharts-card) über HACS
+→ Frontend installieren (kein Bestandteil von Home Assistant selbst).
+
+Anbieter-Verteilung, kWh und Kosten nebeneinander (Donut, wie im Web-UI):
+
+```yaml
+type: horizontal-stack
+cards:
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: kWh pro Anbieter
+    chart_type: donut
+    series:
+      - entity: sensor.skoda_enyaq_total_kwh
+        name: kWh
+        data_generator: |
+          return entity.attributes.by_provider.map(p => [p.provider_name, p.total_kwh]);
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: Bezahlt pro Anbieter
+    chart_type: donut
+    series:
+      - entity: sensor.skoda_enyaq_total_cost
+        name: "€"
+        data_generator: |
+          return entity.attributes.by_provider.map(p => [p.provider_name, p.total_cost]);
+```
+
+Kosten pro Monat (Balken):
+
+```yaml
+type: custom:apexcharts-card
+header:
+  show: true
+  title: Kosten pro Monat
+graph_span: 1year
+series:
+  - entity: sensor.skoda_enyaq_total_cost
+    type: column
+    name: Kosten
+    color: "#5b8def"
+    data_generator: |
+      return entity.attributes.monthly
+        .slice()
+        .reverse()
+        .map(m => [new Date(m.month + "-01").getTime(), m.total_cost]);
+```
+
+kWh pro Monat (Balken):
+
+```yaml
+type: custom:apexcharts-card
+header:
+  show: true
+  title: kWh pro Monat
+graph_span: 1year
+series:
+  - entity: sensor.skoda_enyaq_total_kwh
+    type: column
+    name: kWh
+    color: "#4fd1a5"
+    data_generator: |
+      return entity.attributes.monthly
+        .slice()
+        .reverse()
+        .map(m => [new Date(m.month + "-01").getTime(), m.total_kwh]);
+```
+
+Ø Verbrauch pro Monat (Balken, Monate ohne berechenbaren Wert werden
+übersprungen):
+
+```yaml
+type: custom:apexcharts-card
+header:
+  show: true
+  title: Ø Verbrauch pro Monat
+graph_span: 1year
+series:
+  - entity: sensor.skoda_enyaq_average_consumption
+    type: column
+    name: kWh/100km
+    color: "#9b7bde"
+    data_generator: |
+      return entity.attributes.monthly
+        .slice()
+        .reverse()
+        .filter(m => m.avg_consumption_kwh_per_100km != null)
+        .map(m => [new Date(m.month + "-01").getTime(), m.avg_consumption_kwh_per_100km]);
+```
+
+`monthly` kommt vom Server absteigend sortiert (neuester Monat zuerst,
+siehe `Lademonitor-Server/CLAUDE.md`) – das `.slice().reverse()` sorgt dafür,
+dass der Zeitverlauf wie im Web-UI von links nach rechts läuft.

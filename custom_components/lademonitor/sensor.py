@@ -26,6 +26,50 @@ from .coordinator import LademonitorCoordinator
 @dataclass(frozen=True, kw_only=True)
 class LademonitorSensorDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, Any]], Any] = lambda data: None
+    extra_attrs_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+
+
+def _monthly_attrs(*fields: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Baut eine extra_attrs_fn, die aus StatsSummary.monthly (siehe
+    schemas.MonthlyStat im Server-Repo) pro Monat nur die angegebenen Felder
+    herauszieht - Rohdaten sind schon per Coordinator da (GET
+    /api/stats/summary liefert monthly/by_provider ohnehin mit), nur
+    sensor.py hat das bisher verworfen."""
+
+    def _fn(data: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "monthly": [
+                {"month": month["month"], **{field: month.get(field) for field in fields}}
+                for month in data.get("monthly", [])
+            ]
+        }
+
+    return _fn
+
+
+def _by_provider_attrs(field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Analog zu _monthly_attrs, aber für StatsSummary.by_provider
+    (schemas.ProviderStat)."""
+
+    def _fn(data: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "by_provider": [
+                {"provider_name": provider["provider_name"], field: provider.get(field)}
+                for provider in data.get("by_provider", [])
+            ]
+        }
+
+    return _fn
+
+
+def _combine_attrs(*fns: Callable[[dict[str, Any]], dict[str, Any]]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _fn(data: dict[str, Any]) -> dict[str, Any]:
+        combined: dict[str, Any] = {}
+        for fn in fns:
+            combined.update(fn(data))
+        return combined
+
+    return _fn
 
 
 # Feldnamen entsprechen 1:1 schemas.StatsSummary im Server-Repo. Kein
@@ -40,6 +84,9 @@ SENSOR_DESCRIPTIONS: tuple[LademonitorSensorDescription, ...] = (
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("total_cost"),
+        extra_attrs_fn=_combine_attrs(
+            _monthly_attrs("total_cost"), _by_provider_attrs("total_cost")
+        ),
     ),
     LademonitorSensorDescription(
         key="total_kwh",
@@ -48,6 +95,9 @@ SENSOR_DESCRIPTIONS: tuple[LademonitorSensorDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("total_kwh"),
+        extra_attrs_fn=_combine_attrs(
+            _monthly_attrs("total_kwh"), _by_provider_attrs("total_kwh")
+        ),
     ),
     LademonitorSensorDescription(
         key="avg_price_per_kwh",
@@ -62,6 +112,7 @@ SENSOR_DESCRIPTIONS: tuple[LademonitorSensorDescription, ...] = (
         native_unit_of_measurement="kWh/100km",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("avg_consumption_kwh_per_100km"),
+        extra_attrs_fn=_monthly_attrs("avg_consumption_kwh_per_100km"),
     ),
     LademonitorSensorDescription(
         key="price_per_100km",
@@ -84,6 +135,7 @@ SENSOR_DESCRIPTIONS: tuple[LademonitorSensorDescription, ...] = (
         native_unit_of_measurement="%",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("ac_share_pct"),
+        extra_attrs_fn=lambda data: {"ac_kwh": data.get("ac_kwh")},
     ),
     LademonitorSensorDescription(
         key="dc_share_pct",
@@ -91,12 +143,14 @@ SENSOR_DESCRIPTIONS: tuple[LademonitorSensorDescription, ...] = (
         native_unit_of_measurement="%",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("dc_share_pct"),
+        extra_attrs_fn=lambda data: {"dc_kwh": data.get("dc_kwh")},
     ),
     LademonitorSensorDescription(
         key="total_sessions",
         translation_key="total_sessions",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("total_sessions"),
+        extra_attrs_fn=_monthly_attrs("session_count"),
     ),
 )
 
@@ -142,3 +196,12 @@ class LademonitorSensor(CoordinatorEntity[LademonitorCoordinator], SensorEntity)
         if not vehicle_data:
             return None
         return self.entity_description.value_fn(vehicle_data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.entity_description.extra_attrs_fn is None:
+            return None
+        vehicle_data = self.coordinator.data.get(self._vehicle_id)
+        if not vehicle_data:
+            return None
+        return self.entity_description.extra_attrs_fn(vehicle_data)
