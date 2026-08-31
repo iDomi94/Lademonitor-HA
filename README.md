@@ -1,5 +1,7 @@
 # Lademonitor – Home Assistant Integration
 
+**Sprache:** Deutsch | [English](README.en.md)
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 
 HACS-Integration für [Lademonitor-Server](https://github.com/iDomi94/Lademonitor-Server)
