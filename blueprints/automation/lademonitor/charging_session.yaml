@@ -60,6 +60,22 @@ blueprint:
       selector:
         entity:
           domain: sensor
+    outside_temp_entity:
+      name: Außentemperatur-Sensor (°C)
+      description: >-
+        Optional. Wird BEIM LADEBEGINN ausgelesen und ist die Grundlage der
+        Auswertung "Verbrauch nach Temperatur" im Dashboard: der Verbrauch,
+        den der Server diesem Ladevorgang zurechnet, stammt von der Fahrt
+        davor - und die endet im Moment des Einsteckens. Üblich ist der
+        Außentemperatur-Sensor des Fahrzeugs; ein Wetter- oder
+        Thermometer-Sensor tut es genauso. Braucht Lademonitor-Server 0.23.0
+        oder neuer.
+      default: ""
+      selector:
+        entity:
+          domain:
+            - sensor
+            - weather
     odometer_entity:
       name: Kilometerstand-Sensor
       description: Optional, wird bei Ladeende ausgelesen.
@@ -101,6 +117,7 @@ variables:
   active_states_raw: !input active_states
   battery_soc_entity: !input battery_soc_entity
   charging_type_entity: !input charging_type_entity
+  outside_temp_entity: !input outside_temp_entity
   odometer_entity: !input odometer_entity
   device_tracker_entity: !input device_tracker_entity
   notify_target: !input notify_target
@@ -125,6 +142,15 @@ actions:
               vehicle_external_id: "{{ vehicle_external_id }}"
               soc_start: "{{ states(battery_soc_entity) if battery_soc_entity else None }}"
               charging_type: "{{ states(charging_type_entity) if charging_type_entity else None }}"
+              # `| float(default=None)` faengt 'unknown'/'unavailable' ab -
+              # in Home Assistant der Normalfall, wenn eine Quelle kurz weg
+              # ist. Bei einer weather-Entitaet steht der Wert im Attribut
+              # statt im Zustand, deshalb beide Wege.
+              outside_temp_c: >-
+                {{ (state_attr(outside_temp_entity, 'temperature')
+                    if outside_temp_entity.startswith('weather.')
+                    else states(outside_temp_entity)) | float(default=None)
+                   if outside_temp_entity else None }}
       # aktiver Zustand -> Ruhezustand: Ladung beendet, Push an Lademonitor
       - conditions:
           - condition: template

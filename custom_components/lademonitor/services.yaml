@@ -26,6 +26,21 @@ begin_charging_session:
           options:
             - "AC"
             - "DC"
+    outside_temp_c:
+      name: Außentemperatur (°C)
+      description: >-
+        Optional, aber die Grundlage der Auswertung "Verbrauch nach
+        Temperatur". Hier gehört der Wert BEIM EINSTECKEN hin - der Verbrauch,
+        den der Server diesem Ladevorgang zurechnet, stammt von der Fahrt
+        davor, und die endet genau jetzt. Üblich ist der Außentemperatur-Sensor
+        des Fahrzeugs; ein Wetter- oder Thermometer-Sensor tut es genauso.
+      example: "{{ states('sensor.skoda_enyaq_outside_temperature') | float(default=0) }}"
+      selector:
+        number:
+          min: -60
+          max: 60
+          step: 0.1
+          mode: box
 
 end_charging_session:
   name: Ladevorgang beenden
@@ -77,6 +92,18 @@ end_charging_session:
       selector:
         number:
           min: 0
+          mode: box
+    outside_temp_c:
+      name: Außentemperatur (°C)
+      description: >-
+        Nur nötig, wenn beim Ladebeginn keine übergeben wurde - sonst wird der
+        dort gemerkte Wert verwendet, und der ist der bessere (er stammt vom
+        Ende der Fahrt, nicht von nach dem Laden).
+      selector:
+        number:
+          min: -60
+          max: 60
+          step: 0.1
           mode: box
   response:
     optional: true
@@ -160,4 +187,16 @@ push_charging_session:
       selector:
         number:
           min: 0
+          mode: box
+    outside_temp_c:
+      name: Außentemperatur (°C)
+      description: >-
+        Außentemperatur beim Ladebeginn, Grundlage der Auswertung "Verbrauch
+        nach Temperatur" im Dashboard. Braucht Lademonitor-Server 0.23.0 oder
+        neuer; ältere Server ignorieren das Feld.
+      selector:
+        number:
+          min: -60
+          max: 60
+          step: 0.1
           mode: box
