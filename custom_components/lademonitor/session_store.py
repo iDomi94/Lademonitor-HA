@@ -13,7 +13,7 @@ waere nicht offiziell unterstuetzt und wuerde bei HA-Updates leicht brechen).
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -28,6 +28,13 @@ class PendingSession(TypedDict):
     start_time: str
     soc_start: int | None
     charging_type: str | None
+    # Aussentemperatur beim Einstecken. Aus demselben Grund gemerkt wie
+    # soc_start: beim Ladeende ist sie eine andere als die, unter der die Fahrt
+    # davor stattfand - und genau diese Fahrt wertet der Server spaeter als
+    # Verbrauch aus. Optional, weil aeltere gespeicherte Eintraege (Storage
+    # v1, vor dieser Aenderung) den Schluessel nicht haben; gelesen wird
+    # deshalb ueberall mit .get().
+    outside_temp_c: NotRequired[float | None]
 
 
 class SessionStore:
@@ -48,6 +55,7 @@ class SessionStore:
         vehicle_external_id: str,
         soc_start: int | None,
         charging_type: str | None,
+        outside_temp_c: float | None = None,
     ) -> None:
         # Ueberschreibt einen evtl. noch offenen, nie beendeten Vorgang
         # desselben Fahrzeugs (z.B. nach einer verpassten Ladeende-Meldung) -
@@ -56,6 +64,7 @@ class SessionStore:
             start_time=dt_util.now().isoformat(),
             soc_start=soc_start,
             charging_type=charging_type,
+            outside_temp_c=outside_temp_c,
         )
         await self._store.async_save(self._data)
 

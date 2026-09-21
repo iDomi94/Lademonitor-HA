@@ -59,12 +59,53 @@ Services, die zusammenspielen – SoC-Start/Startzeit/Lade-Art müssen dafür
 (übersteht auch einen HA-Neustart mitten im Ladevorgang):
 
 - **`lademonitor.begin_charging_session`** – beim Einstecken/Ladebeginn
-  aufrufen, merkt `soc_start`/`charging_type` intern (Startzeit wird
-  automatisch auf „jetzt" gesetzt). Überträgt noch nichts an den Server.
+  aufrufen, merkt `soc_start`/`charging_type`/`outside_temp_c` intern
+  (Startzeit wird automatisch auf „jetzt" gesetzt). Überträgt noch nichts an
+  den Server.
 - **`lademonitor.end_charging_session`** – bei Ladeende aufrufen, holt die
   gemerkten Werte wieder heraus, kombiniert sie mit den hier übergebenen
   Endwerten und **überträgt den kompletten Ladevorgang an den Server**
   (entspricht `POST /api/sessions/auto`).
+
+### Außentemperatur (für die Verbrauchsauswertung)
+
+Ab Lademonitor-Server 0.23.0 wertet das Dashboard aus, wie der Verbrauch mit
+der Außentemperatur zusammenhängt – die Frage „was kostet mich der Winter"
+lässt sich damit für das eigene Fahrzeug beantworten statt mit Faustformeln
+aus dem Netz.
+
+Dafür braucht der Server einen Wert je Ladevorgang: `outside_temp_c`, in Grad
+Celsius, **beim Ladebeginn**. Der Zeitpunkt ist kein Detail, sondern der Kern
+der Sache: der Verbrauch, den der Server einem Ladevorgang zurechnet, stammt
+von der Fahrt **davor** – und die endet im Moment des Einsteckens. Eine beim
+Ladeende gemessene Temperatur wäre nach Stunden an der Wallbox eine andere.
+
+Deshalb merkt sich `begin_charging_session` den Wert intern, genau wie
+SoC-Start und Lade-Art, und `end_charging_session` schickt ihn beim Ladeende
+mit. Im Blueprint gibt es dafür den optionalen Eingang
+**„Außentemperatur-Sensor"**; von Hand:
+
+```yaml
+action: lademonitor.begin_charging_session
+data:
+  vehicle_external_id: enyaq
+  soc_start: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
+  charging_type: "{{ states('sensor.skoda_enyaq_charge_type') }}"
+  # float(default=None) fängt 'unknown'/'unavailable' ab - sonst lehnt der
+  # Server den Wert ab (und nur ihn, der Ladevorgang kommt trotzdem an).
+  outside_temp_c: "{{ states('sensor.skoda_enyaq_outside_temperature') | float(default=None) }}"
+```
+
+Welcher Sensor, ist offen: der Außentemperatur-Sensor des Fahrzeugs liegt am
+nächsten, eine Wetter-Integration oder ein eigenes Thermometer am Stellplatz
+tun es genauso. Bei einer `weather.`-Entität steht der Wert im Attribut:
+
+```yaml
+  outside_temp_c: "{{ state_attr('weather.zuhause', 'temperature') | float(default=None) }}"
+```
+
+Ohne Temperatur funktioniert alles wie bisher – die Auswertung bleibt dann
+leer und nennt, wie viele Ladevorgänge ihr fehlen.
 
 ### Blueprint (empfohlen)
 
@@ -142,6 +183,8 @@ actions:
               soc_start: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
               # Sensor liefert klein ('ac'/'dc') - Server normalisiert das selbst.
               charging_type: "{{ states('sensor.skoda_enyaq_charge_type') }}"
+              # Grundlage der Verbrauchsauswertung nach Temperatur, siehe oben.
+              outside_temp_c: "{{ states('sensor.skoda_enyaq_outside_temperature') | float(default=None) }}"
       # aktiver Zustand -> connect_cable: Ladung beendet, Push an Lademonitor
       - conditions:
           - condition: template
@@ -209,6 +252,7 @@ data:
   odometer_km: "{{ session.odometer_km }}"
   latitude: "{{ session.latitude }}"
   longitude: "{{ session.longitude }}"
+  outside_temp_c: "{{ session.outside_temp_c }}"
 ```
 
 ## Bekannte Einschränkung

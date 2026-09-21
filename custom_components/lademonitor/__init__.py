@@ -50,6 +50,7 @@ PUSH_SESSION_SCHEMA = vol.Schema(
         vol.Optional("latitude"): vol.Coerce(float),
         vol.Optional("longitude"): vol.Coerce(float),
         vol.Optional("energy_kwh"): vol.Coerce(float),
+        vol.Optional("outside_temp_c"): vol.Coerce(float),
     }
 )
 
@@ -58,6 +59,7 @@ BEGIN_SESSION_SCHEMA = vol.Schema(
         vol.Required("vehicle_external_id"): cv.string,
         vol.Optional("soc_start"): vol.Coerce(int),
         vol.Optional("charging_type"): cv.string,
+        vol.Optional("outside_temp_c"): vol.Coerce(float),
     }
 )
 
@@ -70,6 +72,7 @@ END_SESSION_SCHEMA = vol.Schema(
         vol.Optional("latitude"): vol.Coerce(float),
         vol.Optional("longitude"): vol.Coerce(float),
         vol.Optional("energy_kwh"): vol.Coerce(float),
+        vol.Optional("outside_temp_c"): vol.Coerce(float),
     }
 )
 
@@ -133,6 +136,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             call.data["vehicle_external_id"],
             call.data.get("soc_start"),
             call.data.get("charging_type"),
+            call.data.get("outside_temp_c"),
         )
 
     async def _async_end_charging_session(call: ServiceCall) -> ServiceResponse:
@@ -157,6 +161,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "end_time": dt_util.now().isoformat(),
             "charging_type": pending["charging_type"],
             "soc_start": pending["soc_start"],
+            # .get(): ein vor dieser Version gemerkter, noch offener Vorgang
+            # hat den Schluessel nicht (siehe session_store.PendingSession).
+            "outside_temp_c": pending.get("outside_temp_c"),
             **{
                 key: value
                 for key, value in call.data.items()
