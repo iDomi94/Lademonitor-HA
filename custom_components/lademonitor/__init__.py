@@ -42,37 +42,37 @@ PUSH_SESSION_SCHEMA = vol.Schema(
         vol.Required("vehicle_external_id"): cv.string,
         vol.Required("external_session_id"): cv.string,
         vol.Required("start_time"): cv.string,
-        vol.Optional("end_time"): cv.string,
-        vol.Optional("charging_type"): cv.string,
-        vol.Optional("soc_start"): vol.Coerce(int),
-        vol.Optional("soc_end"): vol.Coerce(int),
-        vol.Optional("odometer_km"): vol.Coerce(int),
-        vol.Optional("latitude"): vol.Coerce(float),
-        vol.Optional("longitude"): vol.Coerce(float),
-        vol.Optional("energy_kwh"): vol.Coerce(float),
-        vol.Optional("outside_temp_c"): vol.Coerce(float),
+        vol.Optional("end_time"): vol.Any(None, cv.string),
+        vol.Optional("charging_type"): vol.Any(None, cv.string),
+        vol.Optional("soc_start"): vol.Any(None, vol.Coerce(int)),
+        vol.Optional("soc_end"): vol.Any(None, vol.Coerce(int)),
+        vol.Optional("odometer_km"): vol.Any(None, vol.Coerce(int)),
+        vol.Optional("latitude"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("longitude"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("energy_kwh"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
     }
 )
 
 BEGIN_SESSION_SCHEMA = vol.Schema(
     {
         vol.Required("vehicle_external_id"): cv.string,
-        vol.Optional("soc_start"): vol.Coerce(int),
-        vol.Optional("charging_type"): cv.string,
-        vol.Optional("outside_temp_c"): vol.Coerce(float),
+        vol.Optional("soc_start"): vol.Any(None, vol.Coerce(int)),
+        vol.Optional("charging_type"): vol.Any(None, cv.string),
+        vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
     }
 )
 
 END_SESSION_SCHEMA = vol.Schema(
     {
         vol.Required("vehicle_external_id"): cv.string,
-        vol.Optional("external_session_id"): cv.string,
-        vol.Optional("soc_end"): vol.Coerce(int),
-        vol.Optional("odometer_km"): vol.Coerce(int),
-        vol.Optional("latitude"): vol.Coerce(float),
-        vol.Optional("longitude"): vol.Coerce(float),
-        vol.Optional("energy_kwh"): vol.Coerce(float),
-        vol.Optional("outside_temp_c"): vol.Coerce(float),
+        vol.Optional("external_session_id"): vol.Any(None, cv.string),
+        vol.Optional("soc_end"): vol.Any(None, vol.Coerce(int)),
+        vol.Optional("odometer_km"): vol.Any(None, vol.Coerce(int)),
+        vol.Optional("latitude"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("longitude"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("energy_kwh"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
     }
 )
 

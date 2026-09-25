@@ -140,7 +140,7 @@ actions:
           - action: lademonitor.begin_charging_session
             data:
               vehicle_external_id: "{{ vehicle_external_id }}"
-              soc_start: "{{ states(battery_soc_entity) if battery_soc_entity else None }}"
+              soc_start: "{{ states(battery_soc_entity) | int(default=None) if battery_soc_entity else None }}"
               charging_type: "{{ states(charging_type_entity) if charging_type_entity else None }}"
               # `| float(default=None)` faengt 'unknown'/'unavailable' ab -
               # in Home Assistant der Normalfall, wenn eine Quelle kurz weg
@@ -161,10 +161,10 @@ actions:
           - action: lademonitor.end_charging_session
             data:
               vehicle_external_id: "{{ vehicle_external_id }}"
-              soc_end: "{{ states(battery_soc_entity) | int if battery_soc_entity else None }}"
-              odometer_km: "{{ states(odometer_entity) | int if odometer_entity else None }}"
-              latitude: "{{ state_attr(device_tracker_entity, 'latitude') if device_tracker_entity else None }}"
-              longitude: "{{ state_attr(device_tracker_entity, 'longitude') if device_tracker_entity else None }}"
+              soc_end: "{{ states(battery_soc_entity) | int(default=None) if battery_soc_entity else None }}"
+              odometer_km: "{{ states(odometer_entity) | int(default=None) if odometer_entity else None }}"
+              latitude: "{{ state_attr(device_tracker_entity, 'latitude') | float(default=None) if device_tracker_entity else None }}"
+              longitude: "{{ state_attr(device_tracker_entity, 'longitude') | float(default=None) if device_tracker_entity else None }}"
             response_variable: lademonitor_session
           - if:
               - condition: template
