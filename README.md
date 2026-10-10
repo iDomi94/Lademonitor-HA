@@ -107,6 +107,34 @@ tun es genauso. Bei einer `weather.`-Entität steht der Wert im Attribut:
 Ohne Temperatur funktioniert alles wie bisher – die Auswertung bleibt dann
 leer und nennt, wie viele Ladevorgänge ihr fehlen.
 
+### Wallbox-Zähler (gemessene kWh)
+
+Ohne Zähler schätzt der Server die kWh eines automatisch erfassten
+Ladevorgangs aus SoC-Hub × Akkukapazität. Das reicht für Kosten und
+Verbrauch, aber solche Vorgänge zählen bei **Akku-Index und Ladeverlusten**
+nicht mit: eine Schätzung ergäbe dort immer genau 0 % Verlust.
+
+Hat deine Wallbox in Home Assistant einen Energiezähler (go-e, Easee,
+openWB, evcc, ein Shelly in der Zuleitung …), kann die Integration ihn ab
+Version 0.6.0 auslesen: beim Einstecken merkt sie sich den Stand, beim
+Ladeende schickt sie die Differenz als gemessene kWh mit. Im Blueprint gibt es
+dafür den optionalen Eingang **„Energiezähler der Wallbox"**; von Hand:
+
+```yaml
+action: lademonitor.begin_charging_session
+data:
+  vehicle_external_id: enyaq
+  soc_start: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
+  energy_sensor: sensor.wallbox_energy_total
+```
+
+Gemeint ist der **Gesamtzähler**, der immer weiter hochzählt, nicht ein
+Sensor „Energie dieser Ladung". Wh und MWh rechnet die Integration selbst um.
+Ist die Differenz unplausibel (0, negativ nach einem Zählerreset oder über
+200 kWh), lässt sie den Wert weg und der Server schätzt wie bisher. Die kWh
+gelten als an der Ladesäule gemessen, auch wenn dein Heim-Anbieter im
+Lademonitor auf „Fahrzeug" steht. Braucht Lademonitor-Server 0.31.0.
+
 ### Blueprint (empfohlen)
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FiDomi94%2FLademonitor-HA%2Fmain%2Fblueprints%2Fautomation%2Flademonitor%2Fcharging_session.yaml)
@@ -224,9 +252,9 @@ unter dem Top-Level-Key `automation:` ablegen, mit einer zusätzlichen eigenen
 `id:` (z.B. `id: enyaq_lademonitor_push`) vor `alias:` – dieselben Felder,
 nur eine Einrückungsebene tiefer.
 
-`energy_kwh` wird bewusst nicht mitgeschickt – der Server schätzt es
-serverseitig zuverlässiger aus SoC-Delta × Akkukapazität (MySkoda liefert
-keine verlässliche kWh-Angabe). Ruft man `end_charging_session` für ein
+`energy_kwh` vom Fahrzeug wird bewusst nicht mitgeschickt – MySkoda liefert
+keine verlässliche kWh-Angabe, der Server schätzt dann aus SoC-Delta ×
+Akkukapazität. Besser ist der Energiezähler der Wallbox (siehe oben). Ruft man `end_charging_session` für ein
 Fahrzeug auf, ohne dass vorher `begin_charging_session` lief (z.B. HA neu
 gestartet, während das Auto schon lud), schlägt der Service mit einer
 klaren Fehlermeldung fehl statt einen unvollständigen Datensatz zu senden.

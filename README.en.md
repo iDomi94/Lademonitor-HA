@@ -109,6 +109,34 @@ just as well. For a `weather.` entity the value lives in an attribute:
 Without a temperature everything works as before - the analysis simply stays
 empty and reports how many sessions it is missing.
 
+### Wallbox meter (measured kWh)
+
+Without a meter, the server estimates the kWh of an automatically recorded
+session from the SoC delta × battery capacity. That is fine for cost and
+consumption, but such sessions are left out of the **battery index and
+charging losses**: an estimate would always show exactly 0 % loss.
+
+If your wallbox has an energy meter in Home Assistant (go-e, Easee, openWB,
+evcc, a Shelly in the supply line …), the integration can read it from
+version 0.6.0: it remembers the reading when charging starts and sends the
+difference as measured kWh when it ends. The blueprint has the optional input
+**"Energiezähler der Wallbox"** for this; by hand:
+
+```yaml
+action: lademonitor.begin_charging_session
+data:
+  vehicle_external_id: enyaq
+  soc_start: "{{ states('sensor.skoda_enyaq_battery_percentage') }}"
+  energy_sensor: sensor.wallbox_energy_total
+```
+
+Use the **total** meter that keeps counting up, not an "energy of this
+session" sensor. Wh and MWh are converted automatically. An implausible
+difference (0, negative after a meter reset, or above 200 kWh) is dropped and
+the server estimates as before. The kWh count as measured at the charger, even
+if your home provider is set to "vehicle" in Lademonitor. Requires
+Lademonitor server 0.31.0.
+
 ### Blueprint (recommended)
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FiDomi94%2FLademonitor-HA%2Fmain%2Fblueprints%2Fautomation%2Flademonitor%2Fcharging_session.yaml)
@@ -227,9 +255,9 @@ under the top-level key `automation:`, with an additional own `id:` (e.g.
 `id: enyaq_lademonitor_push`) before `alias:` – the same fields, just one
 indentation level deeper.
 
-`energy_kwh` is deliberately not sent along – the server estimates it more
-reliably server-side from SoC delta × battery capacity (MySkoda doesn't
-provide a reliable kWh value). If `end_charging_session` is called for a
+`energy_kwh` from the car is deliberately not sent along – MySkoda doesn't
+provide a reliable kWh value, so the server estimates it from SoC delta ×
+battery capacity. The wallbox meter (see above) is the better source. If `end_charging_session` is called for a
 vehicle without `begin_charging_session` having run first (e.g. HA
 restarted while the car was already charging), the service fails with a
 clear error message instead of sending an incomplete record.

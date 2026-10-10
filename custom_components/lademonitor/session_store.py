@@ -35,6 +35,11 @@ class PendingSession(TypedDict):
     # v1, vor dieser Aenderung) den Schluessel nicht haben; gelesen wird
     # deshalb ueberall mit .get().
     outside_temp_c: NotRequired[float | None]
+    # Energiezaehler der Wallbox (siehe energy_meter.py): welcher Sensor und
+    # sein Stand beim Einstecken, in kWh. Ebenfalls NotRequired - aeltere
+    # Eintraege haben die Schluessel nicht.
+    energy_sensor: NotRequired[str | None]
+    energy_start_kwh: NotRequired[float | None]
 
 
 class SessionStore:
@@ -56,6 +61,8 @@ class SessionStore:
         soc_start: int | None,
         charging_type: str | None,
         outside_temp_c: float | None = None,
+        energy_sensor: str | None = None,
+        energy_start_kwh: float | None = None,
     ) -> None:
         # Ueberschreibt einen evtl. noch offenen, nie beendeten Vorgang
         # desselben Fahrzeugs (z.B. nach einer verpassten Ladeende-Meldung) -
@@ -65,6 +72,8 @@ class SessionStore:
             soc_start=soc_start,
             charging_type=charging_type,
             outside_temp_c=outside_temp_c,
+            energy_sensor=energy_sensor,
+            energy_start_kwh=energy_start_kwh,
         )
         await self._store.async_save(self._data)
 

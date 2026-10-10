@@ -76,6 +76,21 @@ blueprint:
           domain:
             - sensor
             - weather
+    energy_entity:
+      name: Energiezähler der Wallbox
+      description: >-
+        Optional. Der Gesamtzähler deiner Wallbox in kWh oder Wh (der Stand,
+        der immer weiter hochzählt, nicht "Energie dieser Ladung"). Der Stand
+        wird bei Ladebeginn gemerkt und bei Ladeende abgezogen - der
+        Ladevorgang bekommt damit gemessene statt geschätzter kWh und zählt
+        bei Akku-Index und Ladeverlusten mit. Leer lassen, wenn du keine
+        Wallbox mit Zähler in Home Assistant hast. Braucht Lademonitor-Server
+        0.31.0 oder neuer.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+          device_class: energy
     odometer_entity:
       name: Kilometerstand-Sensor
       description: Optional, wird bei Ladeende ausgelesen.
@@ -118,6 +133,7 @@ variables:
   battery_soc_entity: !input battery_soc_entity
   charging_type_entity: !input charging_type_entity
   outside_temp_entity: !input outside_temp_entity
+  energy_entity: !input energy_entity
   odometer_entity: !input odometer_entity
   device_tracker_entity: !input device_tracker_entity
   notify_target: !input notify_target
@@ -151,6 +167,9 @@ actions:
                     if outside_temp_entity.startswith('weather.')
                     else states(outside_temp_entity)) | float(default=None)
                    if outside_temp_entity else None }}
+              # Den Stand liest die Integration selbst aus (inkl. Wh/kWh) -
+              # sie bekommt nur den Sensor, nicht den Wert.
+              energy_sensor: "{{ energy_entity if energy_entity else None }}"
       # aktiver Zustand -> Ruhezustand: Ladung beendet, Push an Lademonitor
       - conditions:
           - condition: template
@@ -179,4 +198,5 @@ actions:
                     {{ as_timestamp(lademonitor_session.start_time) | timestamp_custom('%d.%m. %H:%M') }} →
                     Ende {{ as_timestamp(lademonitor_session.end_time) | timestamp_custom('%d.%m. %H:%M') }},
                     SoC {{ lademonitor_session.soc_start }}% → {{ lademonitor_session.soc_end }}%,
-                    {{ lademonitor_session.charging_type }}
+                    {{ lademonitor_session.charging_type }}{% if lademonitor_session.energy_kwh is defined %},
+                    {{ lademonitor_session.energy_kwh | round(1) }} kWh{% endif %}
