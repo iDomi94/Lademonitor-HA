@@ -29,6 +29,7 @@ from .const import (
     SERVICE_PUSH_CHARGING_SESSION,
 )
 from .coordinator import LademonitorCoordinator
+from .energy_meter import measured_kwh, read_energy_kwh
 from .session_store import SessionStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +51,9 @@ PUSH_SESSION_SCHEMA = vol.Schema(
         vol.Optional("latitude"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("longitude"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("energy_kwh"): vol.Any(None, vol.Coerce(float)),
+        # Wo energy_kwh gemessen wurde: "charger" (Wallbox/Ladesaeule) oder
+        # "vehicle". Ohne Angabe gilt die Einstellung des Anbieters im Server.
+        vol.Optional("energy_meter"): vol.Any(None, vol.In(["charger", "vehicle"])),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
     }
 )
@@ -60,6 +64,7 @@ BEGIN_SESSION_SCHEMA = vol.Schema(
         vol.Optional("soc_start"): vol.Any(None, vol.Coerce(int)),
         vol.Optional("charging_type"): vol.Any(None, cv.string),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("energy_sensor"): vol.Any(None, cv.entity_id),
     }
 )
 
@@ -73,6 +78,7 @@ END_SESSION_SCHEMA = vol.Schema(
         vol.Optional("longitude"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("energy_kwh"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("energy_sensor"): vol.Any(None, cv.entity_id),
     }
 )
 
@@ -132,11 +138,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Beim Einstecken/Ladebeginn aufrufen - merkt SoC-Start/Startzeit/
         Lade-Art intern (siehe session_store.py), ersetzt die bisher dafür
         nötigen input_text/input_number-Helfer."""
+        energy_sensor = call.data.get("energy_sensor")
         await session_store.async_begin(
             call.data["vehicle_external_id"],
             call.data.get("soc_start"),
             call.data.get("charging_type"),
             call.data.get("outside_temp_c"),
+            energy_sensor=energy_sensor,
+            energy_start_kwh=read_energy_kwh(hass, energy_sensor),
         )
 
     async def _async_end_charging_session(call: ServiceCall) -> ServiceResponse:
@@ -167,9 +176,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             **{
                 key: value
                 for key, value in call.data.items()
-                if key not in ("vehicle_external_id", "external_session_id") and value is not None
+                if key not in ("vehicle_external_id", "external_session_id", "energy_sensor")
+                and value is not None
             },
         }
+        # Wallbox-Zaehler: nur, wenn nicht ohnehin eine kWh-Angabe uebergeben
+        # wurde - die hat Vorrang. Der Sensor beim Ladeende darf fehlen, dann
+        # gilt der beim Einstecken gemerkte.
+        if call.data.get("energy_kwh") is None:
+            energy_sensor = call.data.get("energy_sensor") or pending.get("energy_sensor")
+            kwh = measured_kwh(pending.get("energy_start_kwh"), read_energy_kwh(hass, energy_sensor))
+            if kwh is not None:
+                payload["energy_kwh"] = kwh
+                # Gemessen an der Wallbox, also an der Ladesaeule - auch wenn
+                # der Heim-Anbieter im Server auf "Fahrzeug" steht.
+                payload["energy_meter"] = "charger"
         await client.async_push_charging_session(payload)
         await session_store.async_clear(vehicle_external_id)
         return payload

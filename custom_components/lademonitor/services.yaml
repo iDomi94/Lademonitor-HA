@@ -42,6 +42,21 @@ begin_charging_session:
           step: 0.1
           mode: box
 
+    energy_sensor:
+      name: Energiezähler der Wallbox
+      description: >-
+        Optional. Der Gesamtzähler deiner Wallbox in kWh (oder Wh), also der
+        Stand, der immer weiter hochzählt - kein "Energie dieser Ladung"-Sensor.
+        Sein Stand wird jetzt gemerkt und beim Ladeende abgezogen. Dann schickt
+        die Integration gemessene statt geschätzter kWh, und der Ladevorgang
+        zählt bei Akku-Index und Ladeverlusten mit. Braucht
+        Lademonitor-Server 0.31.0 oder neuer.
+      example: sensor.wallbox_energy_total
+      selector:
+        entity:
+          domain: sensor
+          device_class: energy
+
 end_charging_session:
   name: Ladevorgang beenden
   description: >-
@@ -105,6 +120,16 @@ end_charging_session:
           max: 60
           step: 0.1
           mode: box
+    energy_sensor:
+      name: Energiezähler der Wallbox
+      description: >-
+        Nur nötig, wenn er nicht schon bei "Ladevorgang beginnen" übergeben
+        wurde. Wird hier zusätzlich "Geladene Energie" angegeben, hat diese
+        Vorrang.
+      selector:
+        entity:
+          domain: sensor
+          device_class: energy
   response:
     optional: true
 
@@ -188,6 +213,17 @@ push_charging_session:
         number:
           min: 0
           mode: box
+    energy_meter:
+      name: kWh gemessen an
+      description: >-
+        Optional. "charger" = an der Wallbox bzw. Ladesäule, "vehicle" = im
+        Fahrzeug abgelesen. Ohne Angabe gilt die Einstellung des Anbieters im
+        Lademonitor.
+      selector:
+        select:
+          options:
+            - "charger"
+            - "vehicle"
     outside_temp_c:
       name: Außentemperatur (°C)
       description: >-
