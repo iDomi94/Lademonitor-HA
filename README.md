@@ -135,6 +135,68 @@ Ist die Differenz unplausibel (0, negativ nach einem Zählerreset oder über
 gelten als an der Ladesäule gemessen, auch wenn dein Heim-Anbieter im
 Lademonitor auf „Fahrzeug" steht. Braucht Lademonitor-Server 0.31.0.
 
+### PV-Anlage/Hausakku: Netzanteil und gemessene Kosten
+
+Lädst du zu Hause mit PV-Anlage oder Hausakku, kommt nur ein Teil der
+Ladung aus dem Netz – nur der kostet Geld, oft zu einem Tarif, der sich über
+den Tag ändert. Ab Version 0.7.0 kann die Integration zwei selbst gebaute
+Zähler genauso auswerten wie den Wallbox-Zähler (Stand bei Ladebeginn
+merken, bei Ladeende abziehen): den **Netzbezug des Autos** in kWh und die
+**Kosten** dieses Netzbezugs in Euro. Der Server rechnet dann mit den
+gemessenen Kosten statt mit dem Preis des Anbieters und weist den
+Netzanteil aus. Braucht Lademonitor-Server 0.41.0 oder neuer; ältere Server
+ignorieren die Werte.
+
+1. **Template-Sensor „Auto-Netzbezug Leistung"** (kW): das Auto bezieht
+   höchstens so viel aus dem Netz, wie das Haus gerade insgesamt bezieht –
+   also das Minimum aus Ladeleistung der Wallbox und Netzbezug. Eine
+   Einspeisung (negativer Netzbezug) zählt als 0. Liefern deine Sensoren W
+   statt kW, vorher durch 1000 teilen.
+
+   ```yaml
+   template:
+     - sensor:
+         - name: Auto-Netzbezug Leistung
+           unique_id: auto_netzbezug_leistung
+           unit_of_measurement: kW
+           device_class: power
+           state_class: measurement
+           availability: >-
+             {{ has_value('sensor.wallbox_leistung')
+                and has_value('sensor.netzbezug_leistung') }}
+           state: >-
+             {% set wallbox = states('sensor.wallbox_leistung') | float(0) %}
+             {% set netz = [states('sensor.netzbezug_leistung') | float(0), 0] | max %}
+             {{ [wallbox, netz] | min }}
+         - name: Auto-Netzbezug Kostenrate
+           unique_id: auto_netzbezug_kostenrate
+           unit_of_measurement: EUR/h
+           state_class: measurement
+           availability: "{{ has_value('sensor.strompreis') }}"
+           state: >-
+             {{ states('sensor.auto_netzbezug_leistung') | float(0)
+                * states('sensor.strompreis') | float(0) }}
+   ```
+
+2. **Template-Sensor „Auto-Netzbezug Kostenrate"** (€/h, siehe oben):
+   Netzbezugsleistung des Autos × aktueller Strompreis in €/kWh aus deiner
+   Tarif-Entität (dynamischer Tarif, Tibber, ein Helfer mit HT/NT …).
+3. Für beide einen **Integral-Helfer** (Einstellungen → Geräte & Dienste →
+   Helfer → „Integral"-Sensor, Methode „Links", Zeiteinheit Stunden) anlegen.
+   Daraus werden zwei stetig steigende Zähler: kWh aus dem Netz und Euro.
+   Ein „Max. Teilintervall" von z.B. einer Minute hält sie auch dann aktuell,
+   wenn sich die Leistung länger nicht ändert.
+4. Im Blueprint die beiden Integral-Sensoren bei **„Netzbezug-Zähler des
+   Autos"** und **„Kostenzähler des Autos"** auswählen. Von Hand heißen die
+   Felder `grid_energy_sensor` und `cost_sensor` (bei
+   `begin_charging_session`); feste Werte lassen sich bei
+   `end_charging_session`/`push_charging_session` als `grid_energy_kwh` und
+   `price_total` übergeben.
+
+Der Kostenzähler muss in Euro zählen, nicht in Cent. Ist ein Zähler beim
+Ladeende nicht verfügbar oder wurde er zurückgesetzt (negative Differenz),
+fehlt nur dieser Wert – der Ladevorgang wird trotzdem übertragen.
+
 ### Blueprint (empfohlen)
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FiDomi94%2FLademonitor-HA%2Fmain%2Fblueprints%2Fautomation%2Flademonitor%2Fcharging_session.yaml)

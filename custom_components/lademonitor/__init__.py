@@ -5,6 +5,7 @@ rest_command-Aufruf in der Home-Assistant-Automation des Server-Repos."""
 from __future__ import annotations
 
 import logging
+import math
 from datetime import timedelta
 
 import voluptuous as vol
@@ -43,7 +44,13 @@ from .const import (
     SERVICE_PUSH_CHARGING_SESSION,
 )
 from .coordinator import LademonitorCoordinator
-from .energy_meter import measured_kwh, read_energy_kwh
+from .energy_meter import (
+    measured_cost,
+    measured_grid_kwh,
+    measured_kwh,
+    read_counter,
+    read_energy_kwh,
+)
 from .session_store import SessionStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,15 +61,35 @@ def _optional_entity_id(value: object) -> str | None:
     """Optionaler Sensor, der einen Ladevorgang nie zum Scheitern bringen darf.
 
     Leer, None oder etwas, das keine Entitaets-ID ist, heisst schlicht "kein
-    Sensor" - dann schaetzt der Server die kWh wie ohne Zaehler. Vorher lehnte
+    Sensor" - dann fehlt der Wert eben (der Server schaetzt z.B. die kWh wie
+    ohne Zaehler bzw. nimmt den Preis des Anbieters). Vorher lehnte
     der Service ein leeres Feld ab, und mit ihm ging der ganze Push verloren."""
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
     try:
         return cv.entity_id(value)
     except vol.Invalid:
-        _LOGGER.warning("Energiezähler %r ist keine gültige Entität - wird ignoriert", value)
+        _LOGGER.warning("Zähler %r ist keine gültige Entität - wird ignoriert", value)
         return None
+
+
+def _optional_non_negative(value: object) -> float | None:
+    """Gemessener Netzbezug (kWh) bzw. gemessene Kosten eines Ladevorgangs.
+
+    Beide >= 0, 0 ist gueltig (reiner Sonnenstrom). Wie bei den optionalen
+    Sensoren gilt: ein leerer, negativer oder unlesbarer Wert faellt weg,
+    statt den ganzen Push scheitern zu lassen."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        _LOGGER.warning("Wert %r ist keine Zahl - wird ignoriert", value)
+        return None
+    if not math.isfinite(number) or number < 0:
+        _LOGGER.warning("Wert %r ist negativ oder ungültig - wird ignoriert", value)
+        return None
+    return number
 
 
 # Felder 1:1 zu schemas.AutoSessionPush (backend/app/schemas.py im Server-Repo) -
@@ -85,6 +112,11 @@ PUSH_SESSION_SCHEMA = vol.Schema(
         # "vehicle". Ohne Angabe gilt die Einstellung des Anbieters im Server.
         vol.Optional("energy_meter"): vol.Any(None, vol.In(["charger", "vehicle"])),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
+        # Laden zu Hause mit PV/Hausakku: davon aus dem Netz bezogene kWh und
+        # die gemessenen Gesamtkosten (ersetzen im Server den Anbieterpreis).
+        # Server vor 0.41.0 ignorieren beide Felder.
+        vol.Optional("grid_energy_kwh"): _optional_non_negative,
+        vol.Optional("price_total"): _optional_non_negative,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -96,6 +128,8 @@ BEGIN_SESSION_SCHEMA = vol.Schema(
         vol.Optional("charging_type"): vol.Any(None, cv.string),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("energy_sensor"): _optional_entity_id,
+        vol.Optional("grid_energy_sensor"): _optional_entity_id,
+        vol.Optional("cost_sensor"): _optional_entity_id,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -111,6 +145,11 @@ END_SESSION_SCHEMA = vol.Schema(
         vol.Optional("energy_kwh"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("energy_sensor"): _optional_entity_id,
+        vol.Optional("grid_energy_sensor"): _optional_entity_id,
+        vol.Optional("cost_sensor"): _optional_entity_id,
+        # Feste Werte statt Zaehler - haben Vorrang vor den Sensoren.
+        vol.Optional("grid_energy_kwh"): _optional_non_negative,
+        vol.Optional("price_total"): _optional_non_negative,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -122,6 +161,16 @@ END_SESSION_SCHEMA = vol.Schema(
 # auch nicht. Unbekannte Felder (z.B. ein neuerer Blueprint gegen eine aeltere
 # Integration) werden verworfen statt den Push scheitern zu lassen.
 LENIENT_SCHEMA = vol.Schema({vol.Required("vehicle_external_id"): cv.string}, extra=vol.ALLOW_EXTRA)
+
+# Felder von end_charging_session, die nicht 1:1 in den Push gehen (die
+# Zaehler-Sensoren werden zu Differenzen verrechnet).
+_END_ONLY_FIELDS = (
+    "vehicle_external_id",
+    "external_session_id",
+    "energy_sensor",
+    "grid_energy_sensor",
+    "cost_sensor",
+)
 
 NOTIFICATION_TITLE = "Lademonitor: Ladevorgang nicht übertragen"
 
@@ -158,6 +207,8 @@ def _report_failure(
             ("soc_end", "SoC Ende (%)"),
             ("charging_type", "Lade-Art"),
             ("energy_kwh", "Energie (kWh)"),
+            ("grid_energy_kwh", "davon aus dem Netz (kWh)"),
+            ("price_total", "Kosten gesamt"),
             ("odometer_km", "Kilometerstand"),
             ("outside_temp_c", "Außentemperatur (°C)"),
         )
@@ -274,6 +325,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         nötigen input_text/input_number-Helfer."""
         data = _validate(hass, BEGIN_SESSION_SCHEMA, call)
         energy_sensor = data.get("energy_sensor")
+        grid_energy_sensor = data.get("grid_energy_sensor")
+        cost_sensor = data.get("cost_sensor")
         await session_store.async_begin(
             data["vehicle_external_id"],
             data.get("soc_start"),
@@ -281,6 +334,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             data.get("outside_temp_c"),
             energy_sensor=energy_sensor,
             energy_start_kwh=read_energy_kwh(hass, energy_sensor),
+            grid_energy_sensor=grid_energy_sensor,
+            grid_energy_start_kwh=read_energy_kwh(hass, grid_energy_sensor),
+            cost_sensor=cost_sensor,
+            cost_start=read_counter(hass, cost_sensor),
         )
 
     async def _async_end_charging_session(call: ServiceCall) -> ServiceResponse:
@@ -320,21 +377,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             **{
                 key: value
                 for key, value in data.items()
-                if key not in ("vehicle_external_id", "external_session_id", "energy_sensor")
-                and value is not None
+                if key not in _END_ONLY_FIELDS and value is not None
             },
         }
         # Wallbox-Zaehler: nur, wenn nicht ohnehin eine kWh-Angabe uebergeben
         # wurde - die hat Vorrang. Der Sensor beim Ladeende darf fehlen, dann
         # gilt der beim Einstecken gemerkte.
-        if data.get("energy_kwh") is None:
-            energy_sensor = data.get("energy_sensor") or pending.get("energy_sensor")
+        energy_sensor = data.get("energy_sensor") or pending.get("energy_sensor")
+        if data.get("energy_kwh") is None and energy_sensor:
             kwh = measured_kwh(pending.get("energy_start_kwh"), read_energy_kwh(hass, energy_sensor))
             if kwh is not None:
                 payload["energy_kwh"] = kwh
                 # Gemessen an der Wallbox, also an der Ladesaeule - auch wenn
                 # der Heim-Anbieter im Server auf "Fahrzeug" steht.
                 payload["energy_meter"] = "charger"
+        # Netzbezug und Kosten (PV/Hausakku): gleiches Prinzip, ein direkt
+        # uebergebener Wert hat Vorrang. Ist ein Zaehler nicht lesbar oder
+        # zurueckgesetzt, fehlt nur dieser Wert - der Push laeuft trotzdem.
+        grid_energy_sensor = data.get("grid_energy_sensor") or pending.get("grid_energy_sensor")
+        if data.get("grid_energy_kwh") is None and grid_energy_sensor:
+            grid_kwh = measured_grid_kwh(
+                pending.get("grid_energy_start_kwh"), read_energy_kwh(hass, grid_energy_sensor)
+            )
+            if grid_kwh is not None:
+                payload["grid_energy_kwh"] = grid_kwh
+        cost_sensor = data.get("cost_sensor") or pending.get("cost_sensor")
+        if data.get("price_total") is None and cost_sensor:
+            cost = measured_cost(pending.get("cost_start"), read_counter(hass, cost_sensor))
+            if cost is not None:
+                payload["price_total"] = cost
         # Schlaegt der Push fehl, bleibt der gemerkte Vorgang stehen (kein
         # async_clear) - ein erneuter Aufruf von end_charging_session
         # uebertraegt ihn nachtraeglich.

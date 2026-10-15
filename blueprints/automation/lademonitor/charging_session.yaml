@@ -92,6 +92,38 @@ blueprint:
         entity:
           domain: sensor
           device_class: energy
+    grid_energy_entity:
+      name: Netzbezug-Zähler des Autos (PV/Hausakku)
+      description: >-
+        Optional, für das Laden zu Hause mit PV-Anlage oder Hausakku. Ein
+        stetig steigender Zähler in kWh, der nur die Energie zählt, die das
+        Auto aus dem Netz bezogen hat (z.B. Integral-Helfer über min(Ladeleistung,
+        Netzbezug), siehe README). Die Differenz zwischen Ladebeginn und
+        Ladeende geht als Netzanteil an den Server, der Rest gilt als Sonnen-/
+        Akkustrom. Leer lassen, wenn du so einen Zähler nicht hast. Braucht
+        Lademonitor-Server 0.41.0 oder neuer.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+          device_class: energy
+    cost_entity:
+      name: Kostenzähler des Autos (PV/Hausakku)
+      description: >-
+        Optional, gehört zum Netzbezug-Zähler. Ein stetig steigender Zähler in
+        Euro, der die Kosten dieses Netzbezugs mit dem jeweils gültigen Tarif
+        aufsummiert (z.B. Integral-Helfer über Netzbezugsleistung des Autos ×
+        aktueller Strompreis, siehe README). Die Differenz geht als gemessene
+        Gesamtkosten an den Server und ersetzt dort den Preis des Anbieters.
+        Leer lassen, wenn du so einen Zähler nicht hast. Braucht
+        Lademonitor-Server 0.41.0 oder neuer.
+      default: ""
+      # Bewusst ohne device_class-Filter: ein Integral-Helfer ueber eine
+      # Kostenrate (EUR/h) bekommt keine device_class "monetary" und waere
+      # sonst nicht auswaehlbar.
+      selector:
+        entity:
+          domain: sensor
     odometer_entity:
       name: Kilometerstand-Sensor
       description: Optional, wird bei Ladeende ausgelesen.
@@ -137,6 +169,8 @@ variables:
   charging_type_entity: !input charging_type_entity
   outside_temp_entity: !input outside_temp_entity
   energy_entity: !input energy_entity
+  grid_energy_entity: !input grid_energy_entity
+  cost_entity: !input cost_entity
   odometer_entity: !input odometer_entity
   device_tracker_entity: !input device_tracker_entity
   notify_target: !input notify_target
@@ -171,12 +205,23 @@ actions:
                       else states(outside_temp_entity)) | float(default=None)
                      if outside_temp_entity else None }}
           - action: lademonitor.begin_charging_session
-            # Den Zaehlerstand liest die Integration selbst aus (inkl. Wh/kWh) -
-            # sie bekommt nur den Sensor, nicht den Wert. Ohne Sensor faellt
-            # das Feld ganz weg statt leer mitzugehen: so laeuft der Blueprint
-            # auch gegen eine Integration, die das Feld (noch) nicht kennt.
+            # Die Zaehlerstaende liest die Integration selbst aus (inkl. Wh/kWh) -
+            # sie bekommt nur die Sensoren, nicht die Werte, und merkt sie sich
+            # bis zum Ladeende. Ohne Sensor faellt das jeweilige Feld ganz weg
+            # statt leer mitzugehen: so laeuft der Blueprint auch gegen eine
+            # Integration, die das Feld (noch) nicht kennt.
             data: >-
-              {{ dict(begin_data, energy_sensor=energy_entity) if energy_entity else begin_data }}
+              {%- set ns = namespace(data=begin_data) -%}
+              {%- if energy_entity -%}
+                {%- set ns.data = dict(ns.data, energy_sensor=energy_entity) -%}
+              {%- endif -%}
+              {%- if grid_energy_entity -%}
+                {%- set ns.data = dict(ns.data, grid_energy_sensor=grid_energy_entity) -%}
+              {%- endif -%}
+              {%- if cost_entity -%}
+                {%- set ns.data = dict(ns.data, cost_sensor=cost_entity) -%}
+              {%- endif -%}
+              {{ ns.data }}
       # aktiver Zustand -> Ruhezustand: Ladung beendet, Push an Lademonitor
       - conditions:
           - condition: template
@@ -215,7 +260,9 @@ actions:
                         Ende {{ as_timestamp(lademonitor_session.end_time) | timestamp_custom('%d.%m. %H:%M') }},
                         SoC {{ lademonitor_session.soc_start }}% → {{ lademonitor_session.soc_end }}%,
                         {{ lademonitor_session.charging_type }}{% if lademonitor_session.energy_kwh is defined %},
-                        {{ lademonitor_session.energy_kwh | round(1) }} kWh{% endif %}
+                        {{ lademonitor_session.energy_kwh | round(1) }} kWh{% endif %}{% if lademonitor_session.grid_energy_kwh is defined %},
+                        davon {{ lademonitor_session.grid_energy_kwh | round(1) }} kWh aus dem Netz{% endif %}{% if lademonitor_session.price_total is defined %},
+                        {{ '%.2f' | format(lademonitor_session.price_total) }} €{% endif %}
                 else:
                   - action: notify.send_message
                     target:

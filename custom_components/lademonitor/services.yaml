@@ -57,6 +57,34 @@ begin_charging_session:
           domain: sensor
           device_class: energy
 
+    grid_energy_sensor:
+      name: Netzbezug-Zähler des Autos
+      description: >-
+        Optional, für das Laden zu Hause mit PV-Anlage/Hausakku. Ein stetig
+        steigender Zähler in kWh (oder Wh), der nur die Energie zählt, die das
+        Auto aus dem Netz bezogen hat - z.B. ein Integral-Helfer über
+        min(Ladeleistung, Netzbezug). Sein Stand wird jetzt gemerkt und beim
+        Ladeende abgezogen; der Rest der Ladung gilt als Sonnen-/Akkustrom.
+        Braucht Lademonitor-Server 0.41.0 oder neuer.
+      example: sensor.auto_netzbezug_energie
+      selector:
+        entity:
+          domain: sensor
+          device_class: energy
+    cost_sensor:
+      name: Kostenzähler des Autos
+      description: >-
+        Optional, gehört zum Netzbezug-Zähler. Ein stetig steigender Zähler in
+        Euro (nicht Cent), der die Kosten genau dieses Netzbezugs aufsummiert, bereits mit
+        dem jeweils gültigen Tarif gewichtet (z.B. Integral-Helfer über
+        Netzbezugsleistung des Autos × aktueller Strompreis). Die Differenz
+        geht als gemessene Gesamtkosten an den Server und ersetzt dort den
+        Preis des Anbieters. Braucht Lademonitor-Server 0.41.0 oder neuer.
+      example: sensor.auto_netzbezug_kosten
+      selector:
+        entity:
+          domain: sensor
+
 end_charging_session:
   name: Ladevorgang beenden
   description: >-
@@ -130,6 +158,46 @@ end_charging_session:
         entity:
           domain: sensor
           device_class: energy
+    grid_energy_sensor:
+      name: Netzbezug-Zähler des Autos
+      description: >-
+        Nur nötig, wenn er nicht schon bei "Ladevorgang beginnen" übergeben
+        wurde. Ein Zählerreset oder ein nicht verfügbarer Sensor lässt nur
+        diesen Wert weg, der Ladevorgang wird trotzdem übertragen.
+      selector:
+        entity:
+          domain: sensor
+          device_class: energy
+    cost_sensor:
+      name: Kostenzähler des Autos
+      description: >-
+        Nur nötig, wenn er nicht schon bei "Ladevorgang beginnen" übergeben
+        wurde. Ein Zählerreset oder ein nicht verfügbarer Sensor lässt nur
+        diesen Wert weg, der Ladevorgang wird trotzdem übertragen.
+      selector:
+        entity:
+          domain: sensor
+    grid_energy_kwh:
+      name: Davon aus dem Netz (kWh)
+      description: >-
+        Optional - fester Wert statt Netzbezug-Zähler, hat Vorrang vor ihm.
+        Braucht Lademonitor-Server 0.41.0 oder neuer.
+      selector:
+        number:
+          min: 0
+          step: 0.001
+          mode: box
+    price_total:
+      name: Kosten gesamt (€)
+      description: >-
+        Optional - fester Betrag statt Kostenzähler, hat Vorrang vor ihm.
+        Ersetzt im Server den Preis des Anbieters. Braucht Lademonitor-Server
+        0.41.0 oder neuer.
+      selector:
+        number:
+          min: 0
+          step: 0.01
+          mode: box
   response:
     optional: true
 
@@ -235,4 +303,28 @@ push_charging_session:
           min: -60
           max: 60
           step: 0.1
+          mode: box
+    grid_energy_kwh:
+      name: Davon aus dem Netz (kWh)
+      description: >-
+        Optional, für das Laden zu Hause mit PV-Anlage/Hausakku: der Teil der
+        geladenen Energie, der aus dem Netz kam (der Rest gilt als Sonnen-/
+        Akkustrom). Braucht Lademonitor-Server 0.41.0 oder neuer; ältere
+        Server ignorieren das Feld.
+      selector:
+        number:
+          min: 0
+          step: 0.001
+          mode: box
+    price_total:
+      name: Kosten gesamt (€)
+      description: >-
+        Optional. Gemessene Gesamtkosten des Ladevorgangs, z.B. aus einem
+        Kostenzähler mit dynamischem Tarif - ersetzt im Server den Preis des
+        Anbieters. Braucht Lademonitor-Server 0.41.0 oder neuer; ältere Server
+        ignorieren das Feld.
+      selector:
+        number:
+          min: 0
+          step: 0.01
           mode: box

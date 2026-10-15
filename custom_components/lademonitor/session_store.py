@@ -40,6 +40,13 @@ class PendingSession(TypedDict):
     # Eintraege haben die Schluessel nicht.
     energy_sensor: NotRequired[str | None]
     energy_start_kwh: NotRequired[float | None]
+    # Laden zu Hause mit PV/Hausakku (siehe energy_meter.py): Zaehler fuer den
+    # Netzbezug des Autos (kWh) und fuer dessen Kosten (Euro), jeweils mit
+    # Stand beim Einstecken. NotRequired wie oben.
+    grid_energy_sensor: NotRequired[str | None]
+    grid_energy_start_kwh: NotRequired[float | None]
+    cost_sensor: NotRequired[str | None]
+    cost_start: NotRequired[float | None]
 
 
 class SessionStore:
@@ -63,6 +70,10 @@ class SessionStore:
         outside_temp_c: float | None = None,
         energy_sensor: str | None = None,
         energy_start_kwh: float | None = None,
+        grid_energy_sensor: str | None = None,
+        grid_energy_start_kwh: float | None = None,
+        cost_sensor: str | None = None,
+        cost_start: float | None = None,
     ) -> None:
         # Ueberschreibt einen evtl. noch offenen, nie beendeten Vorgang
         # desselben Fahrzeugs (z.B. nach einer verpassten Ladeende-Meldung) -
@@ -74,6 +85,10 @@ class SessionStore:
             outside_temp_c=outside_temp_c,
             energy_sensor=energy_sensor,
             energy_start_kwh=energy_start_kwh,
+            grid_energy_sensor=grid_energy_sensor,
+            grid_energy_start_kwh=grid_energy_start_kwh,
+            cost_sensor=cost_sensor,
+            cost_start=cost_start,
         )
         await self._store.async_save(self._data)
 

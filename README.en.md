@@ -137,6 +137,66 @@ the server estimates as before. The kWh count as measured at the charger, even
 if your home provider is set to "vehicle" in Lademonitor. Requires
 Lademonitor server 0.31.0.
 
+### Solar/home battery: grid share and measured cost
+
+If you charge at home with solar panels or a home battery, only part of a
+session comes from the grid – and only that part costs money, often at a
+tariff that changes during the day. From version 0.7.0 the integration can
+read two self-built counters the same way as the wallbox meter (reading
+remembered when charging starts, subtracted when it ends): the car's **grid
+energy** in kWh and the **cost** of that grid energy in euros. The server
+then uses the measured cost instead of the provider price and shows the grid
+share. Requires Lademonitor server 0.41.0 or newer; older servers ignore the
+values.
+
+1. **Template sensor "car grid power"** (kW): the car cannot draw more from
+   the grid than the house currently imports in total – so it is the minimum
+   of wallbox power and grid import. Export (negative import) counts as 0. If
+   your sensors report W instead of kW, divide by 1000 first.
+
+   ```yaml
+   template:
+     - sensor:
+         - name: Car grid power
+           unique_id: car_grid_power
+           unit_of_measurement: kW
+           device_class: power
+           state_class: measurement
+           availability: >-
+             {{ has_value('sensor.wallbox_power')
+                and has_value('sensor.grid_import_power') }}
+           state: >-
+             {% set wallbox = states('sensor.wallbox_power') | float(0) %}
+             {% set grid = [states('sensor.grid_import_power') | float(0), 0] | max %}
+             {{ [wallbox, grid] | min }}
+         - name: Car grid cost rate
+           unique_id: car_grid_cost_rate
+           unit_of_measurement: EUR/h
+           state_class: measurement
+           availability: "{{ has_value('sensor.electricity_price') }}"
+           state: >-
+             {{ states('sensor.car_grid_power') | float(0)
+                * states('sensor.electricity_price') | float(0) }}
+   ```
+
+2. **Template sensor "car grid cost rate"** (€/h, see above): car grid power
+   × current price in €/kWh from your tariff entity (dynamic tariff, Tibber,
+   a helper with peak/off-peak …).
+3. Create an **integral helper** for each (Settings → Devices & services →
+   Helpers → "Integral" sensor, method "Left", time unit hours). This gives
+   two ever-increasing counters: kWh from the grid and euros. A "max sub
+   interval" of e.g. one minute keeps them current even when the power does
+   not change for a while.
+4. In the blueprint, select the two integral sensors as **"Netzbezug-Zähler
+   des Autos"** and **"Kostenzähler des Autos"**. By hand, the fields are
+   `grid_energy_sensor` and `cost_sensor` (on `begin_charging_session`);
+   fixed values can be passed to `end_charging_session`/`push_charging_session`
+   as `grid_energy_kwh` and `price_total`.
+
+The cost counter must count in euros, not cents. If a counter is unavailable
+at the end of charging or was reset (negative difference), only that value is
+left out – the session is still pushed.
+
 ### Blueprint (recommended)
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FiDomi94%2FLademonitor-HA%2Fmain%2Fblueprints%2Fautomation%2Flademonitor%2Fcharging_session.yaml)
