@@ -104,13 +104,16 @@ def _combine_attrs(*fns: Callable[[dict[str, Any]], dict[str, Any]]) -> Callable
 # device_class=MONETARY-Unit-Zwang auf "€" - der Server kennt keine Währung,
 # das Projekt ist auf den deutschsprachigen/EUR-Kontext des Nutzers
 # zugeschnitten (siehe README des Server-Repos).
+# total_cost/total_kwh sind Summen und brauchen state_class TOTAL - MONETARY
+# erlaubt nichts anderes, und TOTAL_INCREASING wuerde jedes Loeschen oder
+# Korrigieren eines Ladevorgangs (Summe sinkt) als Zaehlerreset werten.
 SENSOR_DESCRIPTIONS: tuple[LademonitorSensorDescription, ...] = (
     LademonitorSensorDescription(
         key="total_cost",
         translation_key="total_cost",
         native_unit_of_measurement="€",
         device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
         value_fn=lambda data: data.get("total_cost"),
         extra_attrs_fn=_combine_attrs(
             _monthly_attrs("total_cost"), _by_provider_attrs("total_cost")
@@ -121,7 +124,7 @@ SENSOR_DESCRIPTIONS: tuple[LademonitorSensorDescription, ...] = (
         translation_key="total_kwh",
         native_unit_of_measurement="kWh",
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
         value_fn=lambda data: data.get("total_kwh"),
         extra_attrs_fn=_combine_attrs(
             _monthly_attrs("total_kwh"), _by_provider_attrs("total_kwh")
