@@ -13,7 +13,7 @@ waere nicht offiziell unterstuetzt und wuerde bei HA-Updates leicht brechen).
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -99,3 +99,53 @@ class SessionStore:
         if vehicle_external_id in self._data:
             del self._data[vehicle_external_id]
             await self._store.async_save(self._data)
+
+
+class FailedPushQueue:
+    """Fertige Push-Payloads, deren Uebertragung an einem voruebergehenden
+    Fehler gescheitert ist (Server nicht erreichbar, HTTP 5xx ...).
+
+    Eigener Store statt eines Feldes im SessionStore: dort haengt pro Fahrzeug
+    genau EIN offener Vorgang, und der naechste begin_charging_session
+    ueberschreibt ihn. Ein gescheiterter Push lag vorher genau dort und ging
+    verloren, sobald vor einem erneuten Versuch wieder eingesteckt wurde.
+    Erneut gesendet wird die unveraenderte Payload - Endzeit, SoC-Ende und
+    Zaehlerstaende bleiben die vom Ladeende. Doppelt senden ist harmlos: der
+    Server legt eine external_session_id nur einmal an."""
+
+    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        self._store: Store[list[dict[str, Any]]] = Store(
+            hass, STORAGE_VERSION, f"{DOMAIN}_{entry_id}_failed_pushes"
+        )
+        self._items: list[dict[str, Any]] = []
+
+    async def async_load(self) -> None:
+        self._items = await self._store.async_load() or []
+
+    @property
+    def items(self) -> list[dict[str, Any]]:
+        return list(self._items)
+
+    def has_vehicle(self, vehicle_external_id: str | None) -> bool:
+        return any(item.get("vehicle_external_id") == vehicle_external_id for item in self._items)
+
+    def contains(self, payload: dict[str, Any]) -> bool:
+        return any(_same_session(item, payload) for item in self._items)
+
+    async def async_add(self, payload: dict[str, Any]) -> None:
+        # Derselbe Vorgang zweimal (z.B. end_charging_session von Hand
+        # wiederholt) ersetzt den alten Eintrag statt ihn zu verdoppeln.
+        self._items = [item for item in self._items if not _same_session(item, payload)]
+        self._items.append(payload)
+        await self._store.async_save(self._items)
+
+    async def async_remove(self, payload: dict[str, Any]) -> None:
+        self._items = [item for item in self._items if not _same_session(item, payload)]
+        await self._store.async_save(self._items)
+
+
+def _same_session(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    return (
+        a.get("vehicle_external_id") == b.get("vehicle_external_id")
+        and a.get("external_session_id") == b.get("external_session_id")
+    )

@@ -4,6 +4,7 @@ rest_command-Aufruf in der Home-Assistant-Automation des Server-Repos."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from datetime import timedelta
@@ -20,6 +21,7 @@ from homeassistant.exceptions import (
 )
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 from voluptuous.humanize import humanize_error
@@ -29,6 +31,7 @@ from .api import (
     LademonitorApiError,
     LademonitorAuthError,
     LademonitorConnectionError,
+    is_temporary,
 )
 from .const import (
     CONF_BASE_URL,
@@ -51,10 +54,15 @@ from .energy_meter import (
     read_counter,
     read_energy_kwh,
 )
-from .session_store import SessionStore
+from .session_store import FailedPushQueue, SessionStore
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
+
+# Wie oft gescheiterte Pushes erneut versucht werden. Kurz genug, dass ein
+# Vorgang nach einem Serverausfall bald nachkommt; ein Versuch kostet nur
+# eine Anfrage je wartendem Vorgang.
+RETRY_INTERVAL = timedelta(minutes=5)
 
 
 def _optional_entity_id(value: object) -> str | None:
@@ -185,6 +193,7 @@ def _report_failure(
     vehicle_external_id: str | None,
     error: str,
     session: dict | None = None,
+    queued: bool = False,
 ) -> None:
     """Meldet einen gescheiterten Push sichtbar statt nur im Log.
 
@@ -214,7 +223,18 @@ def _report_failure(
         )
         values = [f"- {label}: {session[key]}" for key, label in labels if session.get(key) is not None]
         if values:
-            lines += ["", "Werte zum Nachtragen im Lademonitor:", *values]
+            if queued:
+                lines += [
+                    "",
+                    "Der Ladevorgang wird automatisch erneut gesendet, sobald der "
+                    "Server wieder erreichbar ist - nichts zu tun. Diese Meldung "
+                    "verschwindet dann von selbst.",
+                    "",
+                    "Werte des Ladevorgangs:",
+                    *values,
+                ]
+            else:
+                lines += ["", "Werte zum Nachtragen im Lademonitor:", *values]
     persistent_notification.async_create(
         hass,
         "\n".join(lines),
@@ -278,12 +298,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     session_store = SessionStore(hass, entry.entry_id)
     await session_store.async_load()
+    failed_pushes = FailedPushQueue(hass, entry.entry_id)
+    await failed_pushes.async_load()
+    retry_lock = asyncio.Lock()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "client": client,
         "coordinator": coordinator,
         "vehicles": vehicles,
         "session_store": session_store,
+        "failed_pushes": failed_pushes,
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -297,27 +321,76 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         payload = {key: value for key, value in data.items() if value is not None}
         await _async_push(call.service, payload)
 
+    def _describe(err: Exception) -> str:
+        if isinstance(err, LademonitorAuthError):
+            return f"Anmeldung am Lademonitor-Server fehlgeschlagen: {err}"
+        if isinstance(err, LademonitorApiError) and is_temporary(err):
+            return f"Lademonitor-Server hat einen Fehler gemeldet: {err}"
+        if isinstance(err, LademonitorApiError):
+            return f"Lademonitor-Server hat den Ladevorgang abgelehnt: {err}"
+        if isinstance(err, LademonitorConnectionError):
+            return f"Lademonitor-Server nicht erreichbar: {err}"
+        return f"Unerwarteter Fehler: {err}"
+
+    def _dismiss_if_done(vehicle_external_id: str | None) -> None:
+        # Wartet fuer dieses Fahrzeug noch ein Vorgang, bleibt die Meldung.
+        if not failed_pushes.has_vehicle(vehicle_external_id):
+            persistent_notification.async_dismiss(hass, _notification_id(vehicle_external_id))
+
     async def _async_push(service: str, payload: dict) -> None:
         """Push mit Benachrichtigung im Fehlerfall. Wirft HomeAssistantError,
         damit eine Automation mit `continue_on_error: true` weiterlaufen und
-        selbst reagieren kann (siehe Blueprint)."""
+        selbst reagieren kann (siehe Blueprint).
+
+        Bei einem voruebergehenden Fehler (siehe api.is_temporary) wandert
+        die Payload in die Warteschlange und wird alle RETRY_INTERVAL erneut
+        gesendet - der Fehler wird trotzdem gemeldet und geworfen, damit der
+        Blueprint wie bisher warnt."""
         vehicle_external_id = payload.get("vehicle_external_id")
         try:
             await client.async_push_charging_session(payload)
-        except LademonitorAuthError as err:
-            error = f"Anmeldung am Lademonitor-Server fehlgeschlagen: {err}"
-        except LademonitorApiError as err:
-            error = f"Lademonitor-Server hat den Ladevorgang abgelehnt: {err}"
-        except LademonitorConnectionError as err:
-            error = f"Lademonitor-Server nicht erreichbar: {err}"
         except Exception as err:  # noqa: BLE001 - jeder Fehler soll gemeldet werden
-            _LOGGER.exception("Unerwarteter Fehler beim Push")
-            error = f"Unerwarteter Fehler: {err}"
-        else:
-            persistent_notification.async_dismiss(hass, _notification_id(vehicle_external_id))
+            if not isinstance(err, LademonitorConnectionError | LademonitorAuthError):
+                _LOGGER.exception("Unerwarteter Fehler beim Push")
+            error = _describe(err)
+            queued = is_temporary(err)
+            if queued:
+                await failed_pushes.async_add(payload)
+            _report_failure(hass, service, vehicle_external_id, error, payload, queued=queued)
+            raise HomeAssistantError(error) from err
+        _dismiss_if_done(vehicle_external_id)
+        # Der Server antwortet wieder - wartende Vorgaenge gleich hinterher.
+        if failed_pushes.items:
+            hass.async_create_task(_async_retry_failed())
+
+    async def _async_retry_failed(_now: object = None) -> None:
+        """Sendet die Warteschlange erneut, aeltester Vorgang zuerst. Bricht
+        beim ersten voruebergehenden Fehler ab (Server ist noch weg), ein
+        endgueltiger Fehler (z.B. Fahrzeug inzwischen geloescht) nimmt den
+        Vorgang heraus und meldet ihn zum Nachtragen von Hand."""
+        if retry_lock.locked():
             return
-        _report_failure(hass, service, vehicle_external_id, error, payload)
-        raise HomeAssistantError(error)
+        async with retry_lock:
+            for payload in failed_pushes.items:
+                vehicle_external_id = payload.get("vehicle_external_id")
+                try:
+                    await client.async_push_charging_session(payload)
+                except Exception as err:  # noqa: BLE001
+                    if is_temporary(err):
+                        _LOGGER.debug("Erneuter Push weiterhin nicht moeglich: %s", err)
+                        return
+                    await failed_pushes.async_remove(payload)
+                    _report_failure(
+                        hass, "retry", vehicle_external_id, _describe(err), payload
+                    )
+                    continue
+                await failed_pushes.async_remove(payload)
+                _LOGGER.info(
+                    "Ladevorgang %s (%s) nachtraeglich uebertragen",
+                    payload.get("external_session_id"),
+                    vehicle_external_id,
+                )
+                _dismiss_if_done(vehicle_external_id)
 
     async def _async_begin_charging_session(call: ServiceCall) -> None:
         """Beim Einstecken/Ladebeginn aufrufen - merkt SoC-Start/Startzeit/
@@ -406,10 +479,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             cost = measured_cost(pending.get("cost_start"), read_counter(hass, cost_sensor))
             if cost is not None:
                 payload["price_total"] = cost
-        # Schlaegt der Push fehl, bleibt der gemerkte Vorgang stehen (kein
-        # async_clear) - ein erneuter Aufruf von end_charging_session
-        # uebertraegt ihn nachtraeglich.
-        await _async_push(call.service, payload)
+        # Scheitert der Push voruebergehend, liegt die fertige Payload in der
+        # Warteschlange und der gemerkte Vorgang wird trotzdem geraeumt -
+        # sonst ueberschriebe ihn das naechste Einstecken. Bei einem
+        # endgueltigen Fehler (z.B. unbekannte Fahrzeug-ID) bleibt er stehen:
+        # nach der Korrektur uebertraegt ihn ein erneuter Aufruf.
+        try:
+            await _async_push(call.service, payload)
+        except HomeAssistantError:
+            if failed_pushes.contains(payload):
+                await session_store.async_clear(vehicle_external_id)
+            raise
         await session_store.async_clear(vehicle_external_id)
         return payload
 
@@ -429,6 +509,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         schema=LENIENT_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+
+    entry.async_on_unload(async_track_time_interval(hass, _async_retry_failed, RETRY_INTERVAL))
+    if failed_pushes.items:
+        # z.B. nach einem HA-Neustart waehrend des Serverausfalls
+        entry.async_create_background_task(hass, _async_retry_failed(), "lademonitor_retry")
 
     return True
 

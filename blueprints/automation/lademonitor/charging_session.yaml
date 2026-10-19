@@ -270,5 +270,5 @@ actions:
                     data:
                       message: >-
                         Ladevorgang wurde NICHT an Lademonitor übertragen.
-                        Details stehen in den Benachrichtigungen von Home
-                        Assistant.
+                        Details (und ob er automatisch nachgereicht wird)
+                        stehen in den Benachrichtigungen von Home Assistant.

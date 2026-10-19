@@ -248,9 +248,19 @@ hand. The next successful push for the same vehicle dismisses it. Reported
 are an unreachable or rejecting server, invalid values in the call, and a
 charging end without a remembered start.
 
-The remembered session stays after a failure: calling
-`lademonitor.end_charging_session` again pushes it later (the end time is then
-that of the new call).
+From version 0.8.0 a session that fails for a **temporary** reason (server
+unreachable, a server error such as a database outage, failed login) is sent
+again automatically: the integration keeps the finished session – across Home
+Assistant restarts too – and retries every 5 minutes until the server accepts
+it. End time and end values stay those of the charging end, and the next
+plug-in does not overwrite it. The notification then says it will be resent
+and disappears by itself once the push went through. It cannot arrive twice,
+the server creates each session only once.
+
+If the server rejects the session on its content (e.g. unknown vehicle ID), a
+retry would not help. The remembered session then stays: after fixing the
+cause, calling `lademonitor.end_charging_session` again pushes it (the end time
+is then that of the new call).
 
 The blueprint additionally sends a warning to the configured mobile app
 notification. For your own automations the integration fires the event
