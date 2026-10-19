@@ -39,6 +39,24 @@ async def _error_detail(resp: aiohttp.ClientResponse) -> str:
 class LademonitorApiError(LademonitorConnectionError):
     """Server erreichbar, lehnt die Anfrage aber ab (HTTP 4xx/5xx)."""
 
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def is_temporary(err: Exception) -> bool:
+    """Lohnt sich ein spaeterer neuer Versuch?
+
+    Ja bei Netzwerkfehlern, HTTP 5xx (z.B. Server laeuft, aber seine
+    Datenbank nicht), 408/429 und Anmeldefehlern (nach einer Neuanmeldung in
+    HA geht es wieder). Nein bei den uebrigen 4xx - ein unbekanntes Fahrzeug
+    oder ungueltige Werte werden beim naechsten Versuch genauso abgelehnt."""
+    if isinstance(err, LademonitorAuthError):
+        return True
+    if isinstance(err, LademonitorApiError):
+        return err.status is None or err.status >= 500 or err.status in (408, 429)
+    return isinstance(err, LademonitorConnectionError)
+
 
 class LademonitorApiClient:
     def __init__(
@@ -93,7 +111,9 @@ class LademonitorApiClient:
                     # Die Begruendung des Servers (FastAPI: {"detail": ...}),
                     # z.B. "Fahrzeug nicht gefunden", landet sonst nirgends -
                     # sie steht dann in der Fehler-Benachrichtigung.
-                    raise LademonitorApiError(f"HTTP {resp.status}: {await _error_detail(resp)}")
+                    raise LademonitorApiError(
+                        f"HTTP {resp.status}: {await _error_detail(resp)}", resp.status
+                    )
                 if resp.status == 204:
                     return None
                 return await resp.json()

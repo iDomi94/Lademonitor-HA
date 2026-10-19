@@ -248,9 +248,22 @@ Fahrzeugs räumt sie wieder weg. Gemeldet werden ein nicht erreichbarer oder
 ablehnender Server, ungültige Werte im Aufruf und ein Ladeende ohne gemerkten
 Ladebeginn.
 
-Der gemerkte Ladevorgang bleibt nach einem Fehler stehen: ein erneuter Aufruf
-von `lademonitor.end_charging_session` überträgt ihn nachträglich (die Endzeit
-ist dann allerdings die des neuen Aufrufs).
+Ab Version 0.8.0 wird ein Ladevorgang, der an einem **vorübergehenden** Fehler
+scheitert (Server nicht erreichbar, Serverfehler wie eine ausgefallene
+Datenbank, Anmeldung fehlgeschlagen), automatisch nachgereicht: die
+Integration merkt sich den fertigen Ladevorgang – auch über einen Neustart von
+Home Assistant hinweg – und sendet ihn alle 5 Minuten erneut, bis der Server
+ihn annimmt. Endzeit und Endwerte bleiben die vom Ladeende, und das nächste
+Einstecken überschreibt ihn nicht. Die Benachrichtigung sagt dann „wird
+automatisch erneut gesendet“ und verschwindet nach der erfolgreichen
+Übertragung von selbst. Doppelt ankommen kann er nicht, der Server legt jeden
+Ladevorgang nur einmal an.
+
+Lehnt der Server den Ladevorgang dagegen inhaltlich ab (z.B. unbekannte
+Fahrzeug-ID), hilft ein neuer Versuch nicht. Dann bleibt der gemerkte
+Ladevorgang stehen: nach der Korrektur überträgt ihn ein erneuter Aufruf von
+`lademonitor.end_charging_session` (die Endzeit ist dann die des neuen
+Aufrufs).
 
 Der Blueprint schickt im Fehlerfall zusätzlich eine Warnung an die
 eingetragene Mobile-App-Benachrichtigung. Für eigene Automationen feuert die
