@@ -128,3 +128,7 @@ class LademonitorApiClient:
 
     async def async_push_charging_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", "/api/sessions/auto", json=payload)
+
+    async def async_report_active_session(self, payload: dict[str, Any]) -> None:
+        """Laufenden Ladevorgang melden (Server 0.45.0+, "laedt gerade")."""
+        await self._request("POST", "/api/sessions/active", json=payload)

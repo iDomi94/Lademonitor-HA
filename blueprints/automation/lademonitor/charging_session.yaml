@@ -163,6 +163,7 @@ max_exceeded: silent
 
 variables:
   vehicle_external_id: !input vehicle_external_id
+  charging_state_entity: !input charging_state_entity
   idle_state: !input idle_state
   active_states_raw: !input active_states
   battery_soc_entity: !input battery_soc_entity
@@ -178,6 +179,11 @@ variables:
 triggers:
   - trigger: state
     entity_id: !input charging_state_entity
+    id: state
+  # Zwischenstand fuer die Anzeige "Laedt gerade" im Lademonitor.
+  - trigger: state
+    entity_id: !input battery_soc_entity
+    id: soc
 
 actions:
   - variables:
@@ -187,7 +193,8 @@ actions:
       - conditions:
           - condition: template
             value_template: >-
-              {{ trigger.from_state.state == idle_state
+              {{ trigger.id == 'state'
+                 and trigger.from_state.state == idle_state
                  and trigger.to_state.state in active_states }}
         sequence:
           - variables:
@@ -222,11 +229,26 @@ actions:
                 {%- set ns.data = dict(ns.data, cost_sensor=cost_entity) -%}
               {%- endif -%}
               {{ ns.data }}
+      # Akkustand aendert sich waehrend der Ladung: Zwischenstand an den
+      # Server (nur Anzeige, scheitert still - braucht Server 0.45.0).
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.id == 'soc'
+                 and states(charging_state_entity) in active_states
+                 and trigger.to_state.state | int(default=-1) >= 0 }}
+        sequence:
+          - action: lademonitor.update_charging_session
+            data:
+              vehicle_external_id: "{{ vehicle_external_id }}"
+              soc_current: "{{ trigger.to_state.state | int }}"
+            continue_on_error: true
       # aktiver Zustand -> Ruhezustand: Ladung beendet, Push an Lademonitor
       - conditions:
           - condition: template
             value_template: >-
-              {{ trigger.from_state.state in active_states
+              {{ trigger.id == 'state'
+                 and trigger.from_state.state in active_states
                  and trigger.to_state.state == idle_state }}
         sequence:
           - action: lademonitor.end_charging_session

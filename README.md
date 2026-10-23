@@ -60,8 +60,14 @@ Services, die zusammenspielen – SoC-Start/Startzeit/Lade-Art müssen dafür
 
 - **`lademonitor.begin_charging_session`** – beim Einstecken/Ladebeginn
   aufrufen, merkt `soc_start`/`charging_type`/`outside_temp_c` intern
-  (Startzeit wird automatisch auf „jetzt" gesetzt). Überträgt noch nichts an
-  den Server.
+  (Startzeit wird automatisch auf „jetzt" gesetzt). Ab Version 0.9.0 meldet
+  sie den Ladebeginn außerdem an den Server, der den Vorgang dann als
+  „Lädt gerade" ganz oben im Dashboard und in der Ladevorgangsliste zeigt
+  (Server 0.45.0 oder neuer; ein älterer Server ignoriert das einfach).
+- **`lademonitor.update_charging_session`** – optional während der Ladung,
+  z.B. bei jeder Änderung des Akkustands: schickt `soc_current` (und die
+  bisher geladenen kWh aus dem Wallbox-Zähler) für die Anzeige „Lädt
+  gerade". Der Blueprint macht das ab 0.9.0 von selbst.
 - **`lademonitor.end_charging_session`** – bei Ladeende aufrufen, holt die
   gemerkten Werte wieder heraus, kombiniert sie mit den hier übergebenen
   Endwerten und **überträgt den kompletten Ladevorgang an den Server**
