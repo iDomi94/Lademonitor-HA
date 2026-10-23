@@ -45,6 +45,7 @@ from .const import (
     SERVICE_BEGIN_CHARGING_SESSION,
     SERVICE_END_CHARGING_SESSION,
     SERVICE_PUSH_CHARGING_SESSION,
+    SERVICE_UPDATE_CHARGING_SESSION,
 )
 from .coordinator import LademonitorCoordinator
 from .energy_meter import (
@@ -133,11 +134,23 @@ BEGIN_SESSION_SCHEMA = vol.Schema(
     {
         vol.Required("vehicle_external_id"): cv.string,
         vol.Optional("soc_start"): vol.Any(None, vol.Coerce(int)),
+        # Nur fuer die Anzeige "laedt gerade" im Server, nicht gemerkt - der
+        # Kilometerstand des fertigen Vorgangs kommt beim Ladeende.
+        vol.Optional("odometer_km"): vol.Any(None, vol.Coerce(int)),
         vol.Optional("charging_type"): vol.Any(None, cv.string),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("energy_sensor"): _optional_entity_id,
         vol.Optional("grid_energy_sensor"): _optional_entity_id,
         vol.Optional("cost_sensor"): _optional_entity_id,
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
+UPDATE_SESSION_SCHEMA = vol.Schema(
+    {
+        vol.Required("vehicle_external_id"): cv.string,
+        vol.Optional("soc_current"): vol.Any(None, vol.Coerce(int)),
+        vol.Optional("odometer_km"): vol.Any(None, vol.Coerce(int)),
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -412,6 +425,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             cost_sensor=cost_sensor,
             cost_start=read_counter(hass, cost_sensor),
         )
+        pending = session_store.get(data["vehicle_external_id"])
+        hass.async_create_task(
+            _async_report_active(
+                {
+                    "vehicle_external_id": data["vehicle_external_id"],
+                    "start_time": pending["start_time"],
+                    "soc_start": data.get("soc_start"),
+                    "soc_current": data.get("soc_start"),
+                    "charging_type": data.get("charging_type"),
+                    "outside_temp_c": data.get("outside_temp_c"),
+                    "odometer_km": data.get("odometer_km"),
+                }
+            )
+        )
+
+    async def _async_report_active(payload: dict) -> None:
+        """Meldet den laufenden Vorgang an den Server ("laedt gerade").
+
+        Reine Anzeige: scheitert das (Server aelter als 0.45.0, kurz nicht
+        erreichbar), geht nichts verloren - der eigentliche Vorgang kommt wie
+        bisher beim Ladeende. Deshalb nur ein Log-Eintrag, keine
+        Benachrichtigung und keine Warteschlange."""
+        payload = {key: value for key, value in payload.items() if value is not None}
+        try:
+            await client.async_report_active_session(payload)
+        except (LademonitorConnectionError, LademonitorAuthError) as err:
+            _LOGGER.debug("Laufenden Ladevorgang nicht gemeldet: %s", err)
+
+    async def _async_update_charging_session(call: ServiceCall) -> None:
+        """Zwischenstand eines laufenden Vorgangs (aktueller SoC) an den
+        Server. Ohne gemerkten Ladebeginn passiert nichts - dann gibt es
+        auch nichts anzuzeigen. Den Wallbox-Zaehler liest die Integration
+        selbst und schickt die bisher geladenen kWh mit."""
+        data = _validate(hass, UPDATE_SESSION_SCHEMA, call)
+        pending = session_store.get(data["vehicle_external_id"])
+        if pending is None:
+            _LOGGER.debug("Kein laufender Ladevorgang für %s gemerkt", data["vehicle_external_id"])
+            return
+        energy_kwh = None
+        if energy_sensor := pending.get("energy_sensor"):
+            energy_kwh = measured_kwh(pending.get("energy_start_kwh"), read_energy_kwh(hass, energy_sensor))
+        await _async_report_active(
+            {
+                "vehicle_external_id": data["vehicle_external_id"],
+                "start_time": pending["start_time"],
+                "soc_current": data.get("soc_current"),
+                "odometer_km": data.get("odometer_km"),
+                "energy_kwh": energy_kwh,
+            }
+        )
 
     async def _async_end_charging_session(call: ServiceCall) -> ServiceResponse:
         """Bei Ladeende aufrufen - holt die bei begin_charging_session
@@ -503,6 +566,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DOMAIN, SERVICE_BEGIN_CHARGING_SESSION, _async_begin_charging_session, schema=LENIENT_SCHEMA
     )
     hass.services.async_register(
+        DOMAIN, SERVICE_UPDATE_CHARGING_SESSION, _async_update_charging_session, schema=LENIENT_SCHEMA
+    )
+    hass.services.async_register(
         DOMAIN,
         SERVICE_END_CHARGING_SESSION,
         _async_end_charging_session,
@@ -530,4 +596,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_PUSH_CHARGING_SESSION)
             hass.services.async_remove(DOMAIN, SERVICE_BEGIN_CHARGING_SESSION)
             hass.services.async_remove(DOMAIN, SERVICE_END_CHARGING_SESSION)
+            hass.services.async_remove(DOMAIN, SERVICE_UPDATE_CHARGING_SESSION)
     return unload_ok

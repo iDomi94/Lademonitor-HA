@@ -3,7 +3,8 @@ begin_charging_session:
   description: >-
     Beim Einstecken/Ladebeginn aufrufen - merkt SoC-Start und Lade-Art intern
     (kein input_text/input_number-Helfer mehr nötig). Startzeit wird
-    automatisch auf "jetzt" gesetzt.
+    automatisch auf "jetzt" gesetzt. Ab Lademonitor-Server 0.45.0 erscheint
+    der Vorgang damit sofort als "Lädt gerade" im Dashboard.
   fields:
     vehicle_external_id:
       name: Fahrzeug-ID
@@ -84,6 +85,36 @@ begin_charging_session:
       selector:
         entity:
           domain: sensor
+
+update_charging_session:
+  name: Ladevorgang Zwischenstand
+  description: >-
+    Optional, während der Ladung aufrufen (z.B. bei jeder Änderung des
+    Akkustands). Meldet den aktuellen SoC an den Server, der den laufenden
+    Ladevorgang damit im Dashboard und in der Ladevorgangsliste anzeigt
+    ("Lädt gerade"). Die bisher geladenen kWh aus dem Wallbox-Zähler schickt
+    die Integration selbst mit. Ohne vorheriges begin_charging_session
+    passiert nichts. Braucht Lademonitor-Server 0.45.0 oder neuer.
+  fields:
+    vehicle_external_id:
+      name: Fahrzeug-ID
+      required: true
+      example: enyaq
+      selector:
+        text:
+    soc_current:
+      name: Aktueller Akkustand (%)
+      selector:
+        number:
+          min: 0
+          max: 100
+    odometer_km:
+      name: Kilometerstand
+      selector:
+        number:
+          min: 0
+          max: 9999999
+          mode: box
 
 end_charging_session:
   name: Ladevorgang beenden
