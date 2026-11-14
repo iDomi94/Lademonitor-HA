@@ -211,6 +211,10 @@ actions:
                       if outside_temp_entity.startswith('weather.')
                       else states(outside_temp_entity)) | float(default=None)
                      if outside_temp_entity else None }}
+                # Position nur fuer die Preisschaetzung von "Laedt gerade"
+                # (Server 0.55.0) - der fertige Vorgang bekommt sie beim Ende.
+                latitude: "{{ state_attr(device_tracker_entity, 'latitude') | float(default=None) if device_tracker_entity else None }}"
+                longitude: "{{ state_attr(device_tracker_entity, 'longitude') | float(default=None) if device_tracker_entity else None }}"
           - action: lademonitor.begin_charging_session
             # Die Zaehlerstaende liest die Integration selbst aus (inkl. Wh/kWh) -
             # sie bekommt nur die Sensoren, nicht die Werte, und merkt sie sich
