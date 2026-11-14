@@ -139,6 +139,11 @@ BEGIN_SESSION_SCHEMA = vol.Schema(
         vol.Optional("odometer_km"): vol.Any(None, vol.Coerce(int)),
         vol.Optional("charging_type"): vol.Any(None, cv.string),
         vol.Optional("outside_temp_c"): vol.Any(None, vol.Coerce(float)),
+        # Position beim Einstecken: nur fuer die Preisschaetzung der Anzeige
+        # "laedt gerade" (Ladeort -> Anbieterpreis, Server 0.55.0), nicht
+        # gemerkt - der fertige Vorgang bekommt seine Position beim Ladeende.
+        vol.Optional("latitude"): vol.Any(None, vol.Coerce(float)),
+        vol.Optional("longitude"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("energy_sensor"): _optional_entity_id,
         vol.Optional("grid_energy_sensor"): _optional_entity_id,
         vol.Optional("cost_sensor"): _optional_entity_id,
@@ -436,6 +441,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "charging_type": data.get("charging_type"),
                     "outside_temp_c": data.get("outside_temp_c"),
                     "odometer_km": data.get("odometer_km"),
+                    "latitude": data.get("latitude"),
+                    "longitude": data.get("longitude"),
                 }
             )
         )

@@ -66,6 +66,10 @@ Services, die zusammenspielen – SoC-Start/Startzeit/Lade-Art müssen dafür
   sie den Ladebeginn außerdem an den Server, der den Vorgang dann als
   „Lädt gerade" ganz oben im Dashboard und in der Ladevorgangsliste zeigt
   (Server 0.45.0 oder neuer; ein älterer Server ignoriert das einfach).
+  Ab 0.10.0 nimmt sie optional `latitude`/`longitude` mit (der Blueprint
+  füllt sie aus dem Device-Tracker): passt die Position zu einem Ladeort,
+  schätzt der Server den Preis mit dessen Anbieter, sonst mit dem
+  Durchschnittspreis (Server 0.55.0).
 - **`lademonitor.update_charging_session`** – optional während der Ladung,
   z.B. bei jeder Änderung des Akkustands: schickt `soc_current` (und die
   bisher geladenen kWh aus dem Wallbox-Zähler) für die Anzeige „Lädt

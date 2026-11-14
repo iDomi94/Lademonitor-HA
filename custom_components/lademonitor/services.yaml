@@ -42,6 +42,30 @@ begin_charging_session:
           max: 60
           step: 0.1
           mode: box
+    latitude:
+      name: Breitengrad
+      description: >-
+        Optional. Position beim Einstecken, nur für die Preisschätzung der
+        Anzeige "Lädt gerade": passt sie zu einem Ladeort, schätzt der Server
+        mit dem Preis von dessen Anbieter, sonst mit dem Durchschnittspreis.
+        Braucht Lademonitor-Server 0.55.0, ältere ignorieren sie.
+      example: "{{ state_attr('device_tracker.skoda_enyaq_position', 'latitude') }}"
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: any
+          mode: box
+    longitude:
+      name: Längengrad
+      description: Optional, siehe Breitengrad.
+      example: "{{ state_attr('device_tracker.skoda_enyaq_position', 'longitude') }}"
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: any
+          mode: box
 
     energy_sensor:
       name: Energiezähler der Wallbox
